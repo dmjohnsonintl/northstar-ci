@@ -34,15 +34,12 @@ runs:
 
     - name: Engine (claude-code)
       if: ${{ inputs.engine == 'claude-code' }}
-      uses: anthropics/claude-code-action@v1
-      with:
-        anthropic_api_key: ${{ inputs.anthropic-api-key }}
-        prompt: |
-          The test suite in this repository is failing. Read the failing-test log
-          at ${{ inputs.failing-log }} and fix the SOURCE code (under
-          ${{ inputs.workdir }}) so the tests pass. Make the minimal change.
-          Do NOT weaken, skip, delete, or edit the tests to make them pass.
-          Commit your fix with a clear message.
+      shell: bash
+      env:
+        NS_FIX_WORKDIR: ${{ inputs.workdir }}
+        NS_FIX_LOG: ${{ inputs.failing-log }}
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
+      run: bash "${{ github.action_path }}/../../engine/claude-code/fix.sh"
 
     - name: Re-run tests, then open a PR or escalate
       shell: bash

@@ -78,13 +78,6 @@ jobs:
     needs: gate
     if: ${{ failure() }}
     runs-on: ubuntu-latest
-    # id-token: write is required by the claude-code engine (anthropics/claude-code-action
-    # uses OIDC). Scoped to this job so stub-engine consumers that don't grant id-token
-    # are unaffected. Effective perms are still capped by the caller's grant.
-    permissions:
-      contents: write
-      pull-requests: write
-      id-token: write
     steps:
       - uses: actions/checkout@v5
         with:
