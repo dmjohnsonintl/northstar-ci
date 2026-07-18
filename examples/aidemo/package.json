@@ -1,0 +1,8 @@
+{
+  "name": "ns-aidemo",
+  "private": true,
+  "scripts": {
+    "test:ci": "node --test",
+    "test:coverage": "echo 'aidemo uses a committed coverage-summary.json'"
+  }
+}

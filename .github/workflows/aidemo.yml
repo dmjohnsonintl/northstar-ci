@@ -1,0 +1,17 @@
+name: aidemo
+on:
+  workflow_dispatch:
+# The fix-agent needs to push a branch and open a PR.
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  demo:
+    uses: ./.github/workflows/northstar-pipeline.yml
+    with:
+      workdir: examples/aidemo
+      zones-json: '[{"zone":"src","glob":"src/**"}]'
+      coverage-min: '0'
+      coverage-mode: 'report'
+      engine: 'claude-code'
+    secrets: inherit          # passes ANTHROPIC_API_KEY to the claude-code engine
