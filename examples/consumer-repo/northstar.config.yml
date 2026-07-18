@@ -1,0 +1,11 @@
+adapter: js-ts
+coverage:
+  min: 70
+  trend: no-decrease
+zones:
+  - zone: src
+    glob: src/**
+    prompt: prompts/fixer.md
+fix:
+  engine: stub
+  onExhaustion: label-human

@@ -1,0 +1,27 @@
+name: 'Northstar promote-regression'
+description: 'On the default branch: ratchet the coverage baseline and promote green staged tests.'
+inputs:
+  workdir:
+    description: 'Consumer project directory (relative to the repo root)'
+    default: '.'
+  next-baseline:
+    description: 'Path to the proposed new baseline file (from coverage-gate), repo-root-relative'
+    required: true
+runs:
+  using: 'composite'
+  steps:
+    - shell: bash
+      env:
+        WORKDIR: ${{ inputs.workdir }}
+        NEXT_BASELINE: ${{ inputs.next-baseline }}
+      run: |
+        WD="${WORKDIR%/}"
+        mkdir -p "$WD/.northstar"
+        cp "$NEXT_BASELINE" "$WD/.northstar/coverage-baseline.json"
+        node "${{ github.action_path }}/../../lib/promote-cli.js" \
+          --staging "$WD/tests/new" --regression "$WD/tests/regression"
+        git config user.name "northstar[bot]"
+        git config user.email "northstar@users.noreply.github.com"
+        git add "$WD/.northstar/coverage-baseline.json" "$WD/tests/" || true
+        git commit -m "chore(northstar): ratchet coverage baseline + promote regression" || echo "nothing to commit"
+        git push || echo "no push (no changes / protected)"

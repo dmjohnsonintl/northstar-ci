@@ -1,0 +1,8 @@
+{
+  "name": "ns-fixture",
+  "private": true,
+  "scripts": {
+    "test:ci": "node --test",
+    "test:coverage": "echo 'v0 fixture uses a committed coverage-summary.json'"
+  }
+}

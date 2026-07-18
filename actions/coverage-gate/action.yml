@@ -1,0 +1,51 @@
+name: 'Northstar coverage-gate'
+description: 'Run coverage and enforce minimum + no-downward-trend.'
+inputs:
+  workdir:
+    description: 'Directory to run coverage in'
+    default: '.'
+  coverage-cmd:
+    description: 'Coverage command emitting coverage/coverage-summary.json'
+    default: 'npm run test:coverage'
+  min:
+    description: 'Minimum acceptable line coverage pct'
+    default: '80'
+  mode:
+    description: 'no-decrease | report'
+    default: 'no-decrease'
+  baseline-file:
+    description: 'Committed baseline JSON path'
+    default: '.northstar/coverage-baseline.json'
+outputs:
+  next-baseline:
+    description: 'Path to the proposed new baseline file'
+    value: ${{ steps.gate.outputs.next }}
+runs:
+  using: 'composite'
+  steps:
+    - id: cov
+      shell: bash
+      env:
+        NS_WORKDIR: ${{ inputs.workdir }}
+        NS_COV_CMD: ${{ inputs.coverage-cmd }}
+      run: |
+        bash "${{ github.action_path }}/../../adapters/js-ts/coverage.sh" | tee /tmp/ns-cov.out
+        echo "summary=$(grep '^summary=' /tmp/ns-cov.out | cut -d= -f2-)" >> "$GITHUB_OUTPUT"
+    - id: gate
+      shell: bash
+      env:
+        WORKDIR: ${{ inputs.workdir }}
+        BASELINE_FILE: ${{ inputs.baseline-file }}
+        SUMMARY: ${{ steps.cov.outputs.summary }}
+        MIN: ${{ inputs.min }}
+        MODE: ${{ inputs.mode }}
+      run: |
+        WD="${WORKDIR%/}"
+        NEXT="$WD/.northstar/coverage-baseline.next.json"
+        node "${{ github.action_path }}/../../lib/gate-cli.js" \
+          --summary "$SUMMARY" \
+          --baseline "$WD/$BASELINE_FILE" \
+          --min "$MIN" \
+          --mode "$MODE" \
+          --out "$NEXT" | tee -a "$GITHUB_STEP_SUMMARY"
+        echo "next=$NEXT" >> "$GITHUB_OUTPUT"

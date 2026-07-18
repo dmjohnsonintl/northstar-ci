@@ -1,0 +1,10 @@
+{
+  "name": "northstar",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Stigmergic agent-driven testing package for GitHub Actions",
+  "scripts": {
+    "test": "node --test"
+  },
+  "license": "UNLICENSED"
+}

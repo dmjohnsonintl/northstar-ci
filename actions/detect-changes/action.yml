@@ -1,0 +1,37 @@
+name: 'Northstar detect-changes'
+description: 'Map changed files to Northstar zones.'
+inputs:
+  zones-json:
+    description: 'JSON array of {zone, glob}'
+    required: true
+  base-sha:
+    description: 'Base commit SHA'
+    required: true
+  head-sha:
+    description: 'Head commit SHA'
+    required: true
+outputs:
+  zones:
+    description: 'Space-separated zone names touched'
+    value: ${{ steps.resolve.outputs.zones }}
+runs:
+  using: 'composite'
+  steps:
+    - id: resolve
+      shell: bash
+      env:
+        ZONES_JSON: ${{ inputs.zones-json }}
+        BASE_SHA: ${{ inputs.base-sha }}
+        HEAD_SHA: ${{ inputs.head-sha }}
+      run: |
+        # SHAs and config passed via env (never interpolated into the command) —
+        # the injection-safe pattern this package enforces everywhere.
+        FILES="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")"
+        ZONES="$(node -e '
+          const { resolveZones } = require(process.env.GITHUB_ACTION_PATH + "/../../lib/zones.js");
+          const defs = JSON.parse(process.env.ZONES_JSON);
+          const files = require("fs").readFileSync(0, "utf8").split("\n").filter(Boolean);
+          process.stdout.write(resolveZones(files, defs).join(" "));
+        ' <<< "$FILES")"
+        echo "zones=$ZONES" >> "$GITHUB_OUTPUT"
+        echo "[northstar] zones touched: ${ZONES:-<none>}"

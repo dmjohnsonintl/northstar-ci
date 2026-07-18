@@ -1,0 +1,17 @@
+name: 'Northstar run-suite'
+description: 'Run the test suite via the js-ts adapter.'
+inputs:
+  workdir:
+    description: 'Directory to run tests in'
+    default: '.'
+  test-cmd:
+    description: 'Test command'
+    default: 'npm run test:ci'
+runs:
+  using: 'composite'
+  steps:
+    - shell: bash
+      env:
+        NS_WORKDIR: ${{ inputs.workdir }}
+        NS_TEST_CMD: ${{ inputs.test-cmd }}
+      run: bash "${{ github.action_path }}/../../adapters/js-ts/run.sh"

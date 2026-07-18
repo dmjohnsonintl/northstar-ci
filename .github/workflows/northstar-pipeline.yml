@@ -1,0 +1,68 @@
+name: Northstar pipeline
+on:
+  workflow_call:
+    inputs:
+      workdir:
+        type: string
+        default: '.'
+      zones-json:
+        type: string
+        required: true
+      coverage-min:
+        type: string
+        default: '80'
+      coverage-mode:
+        type: string
+        default: 'no-decrease'
+      node-version:
+        type: string
+        default: '18'
+
+# Least privilege: only what promote-regression needs on the default branch.
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: northstar-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ inputs.node-version }}
+      - name: Install project deps
+        working-directory: ${{ inputs.workdir }}
+        run: npm ci
+      # Local action refs resolve against THIS reusable workflow's repo at the
+      # ref it was called with (e.g. @v0) — no checkout of the package needed.
+      - name: detect-changes
+        id: detect
+        uses: ./actions/detect-changes
+        with:
+          zones-json: ${{ inputs.zones-json }}
+          base-sha: ${{ github.event.pull_request.base.sha || github.event.before }}
+          head-sha: ${{ github.sha }}
+      - name: run-suite
+        uses: ./actions/run-suite
+        with:
+          workdir: ${{ inputs.workdir }}
+      - name: coverage-gate
+        id: gate
+        uses: ./actions/coverage-gate
+        with:
+          workdir: ${{ inputs.workdir }}
+          min: ${{ inputs.coverage-min }}
+          mode: ${{ inputs.coverage-mode }}
+      - name: promote-regression (default branch only)
+        if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+        uses: ./actions/promote-regression
+        with:
+          workdir: ${{ inputs.workdir }}
+          next-baseline: ${{ steps.gate.outputs.next-baseline }}

@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "northstar.config.yml",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["adapter", "coverage", "zones"],
+  "properties": {
+    "adapter": { "enum": ["js-ts"] },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["min", "trend"],
+      "properties": {
+        "min": { "type": "number", "minimum": 0, "maximum": 100 },
+        "trend": { "enum": ["no-decrease", "report"] }
+      }
+    },
+    "zones": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["zone", "glob"],
+        "properties": {
+          "zone": { "type": "string" },
+          "glob": { "type": "string" },
+          "prompt": { "type": "string" }
+        }
+      }
+    },
+    "fix": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "engine": { "enum": ["claude-code", "stub"] },
+        "onExhaustion": { "enum": ["label-human"] }
+      }
+    }
+  }
+}
