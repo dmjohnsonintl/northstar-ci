@@ -4,10 +4,7 @@ on:
   push:
     branches: [main]
 jobs:
-  call:
-    uses: ./.github/workflows/northstar-pipeline.yml
+  call-min:
+    uses: ./.github/workflows/min.yml
     with:
-      workdir: examples/consumer-repo
-      zones-json: '[{"zone":"src","glob":"src/**"}]'
-      coverage-min: '0'
-      coverage-mode: 'report'
+      msg: 'from selftest'
