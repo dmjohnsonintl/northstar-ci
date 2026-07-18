@@ -1,0 +1,13 @@
+name: selftest
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+jobs:
+  call:
+    uses: ./.github/workflows/northstar-pipeline.yml
+    with:
+      workdir: examples/consumer-repo
+      zones-json: '[{"zone":"src","glob":"src/**"}]'
+      coverage-min: '0'
+      coverage-mode: 'report'
