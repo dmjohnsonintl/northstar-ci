@@ -17,6 +17,10 @@ on:
       node-version:
         type: string
         default: '18'
+      engine:
+        description: 'Fix-agent engine: stub (default, no LLM) | claude-code'
+        type: string
+        default: 'stub'
 
 # Least privilege: only what promote-regression needs on the default branch.
 permissions:
@@ -67,3 +71,33 @@ jobs:
         with:
           workdir: ${{ inputs.workdir }}
           next-baseline: ${{ steps.gate.outputs.next-baseline }}
+
+  # Single-attempt fix-agent: runs only when the gate job fails. Opens a PR on
+  # success, labels ns:needs-human on exhaustion. Never auto-merges.
+  fix:
+    needs: gate
+    if: ${{ failure() }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.head_ref || github.ref_name }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ inputs.node-version }}
+      - name: Install project deps
+        working-directory: ${{ inputs.workdir }}
+        run: npm ci
+      - name: Capture the failing-test log
+        continue-on-error: true
+        uses: dmjohnsonintl/northstar-ci/actions/run-suite@v0
+        with:
+          workdir: ${{ inputs.workdir }}
+      - name: fix-agent
+        uses: dmjohnsonintl/northstar-ci/actions/fix-agent@v0
+        with:
+          workdir: ${{ inputs.workdir }}
+          engine: ${{ inputs.engine }}
+          failing-log: ${{ inputs.workdir }}/artifacts/test.log
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
