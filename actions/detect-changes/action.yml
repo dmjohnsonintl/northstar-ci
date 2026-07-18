@@ -26,7 +26,15 @@ runs:
       run: |
         # SHAs and config passed via env (never interpolated into the command) —
         # the injection-safe pattern this package enforces everywhere.
-        FILES="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")"
+        # Robust base resolution: a valid base SHA (PR/push) → diff it; otherwise
+        # (workflow_dispatch, shallow, or first commit) fall back gracefully.
+        if [ -n "$BASE_SHA" ] && git rev-parse -q --verify "${BASE_SHA}^{commit}" >/dev/null 2>&1; then
+          FILES="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")"
+        elif git rev-parse -q --verify "${HEAD_SHA}^" >/dev/null 2>&1; then
+          FILES="$(git diff --name-only "${HEAD_SHA}^" "$HEAD_SHA")"
+        else
+          FILES="$(git ls-files)"
+        fi
         ZONES="$(node -e '
           const { resolveZones } = require(process.env.GITHUB_ACTION_PATH + "/../../lib/zones.js");
           const defs = JSON.parse(process.env.ZONES_JSON);
