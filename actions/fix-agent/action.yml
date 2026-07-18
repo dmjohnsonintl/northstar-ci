@@ -57,16 +57,18 @@ runs:
         bash "${{ github.action_path }}/../../adapters/js-ts/run.sh"; PASS=$?
         if [ "$PASS" -eq 0 ]; then
           git push -u origin "$BRANCH"
-          gh pr create --head "$BRANCH" \
-            --title "Northstar fix (run ${RUN_ID})" \
-            --body "Automated single-attempt fix by the '${{ inputs.engine }}' engine. **Human review required — nothing auto-merges.**" \
-            || echo "PR create skipped (already exists or gh unavailable)"
-          echo "[northstar] green after fix → PR opened on $BRANCH"
+          if gh pr create --head "$BRANCH" \
+               --title "Northstar fix (run ${RUN_ID})" \
+               --body "Automated single-attempt fix by the '${{ inputs.engine }}' engine. **Human review required — nothing auto-merges.**"; then
+            echo "[northstar] green after fix → PR opened on $BRANCH"
+          else
+            echo "::warning::Fix is green on branch $BRANCH, but PR creation failed. Enable 'Allow GitHub Actions to create and approve pull requests' (repo Settings → Actions → General → Workflow permissions), or open the PR from $BRANCH manually."
+          fi
         else
           gh issue create \
             --title "Northstar: needs human (run ${RUN_ID})" \
             --label "ns:needs-human" \
             --body "The single-attempt fix did not make the suite green. A human is needed." \
-            || echo "issue create skipped (gh unavailable)"
-          echo "[northstar] still red after one attempt → labeled ns:needs-human"
+            || echo "::warning::could not create the ns:needs-human issue (check permissions)"
+          echo "[northstar] still red after one attempt → escalated to a human"
         fi
