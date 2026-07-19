@@ -101,6 +101,18 @@ jobs:
           zones-json: ${{ inputs.zones-json }}
           base-sha: ${{ github.event.pull_request.base.sha || github.event.before }}
           head-sha: ${{ github.sha }}
+      # hot-area (advisory signal): the touched zones are where activity/risk is
+      # concentrated. TTL 24h; GC expires it. Emitted to the step summary always,
+      # and as a PR label when there's a PR.
+      - name: signal — hot-area
+        if: ${{ steps.detect.outputs.zones != '' }}
+        uses: dmjohnsonintl/northstar-ci/actions/signal@v0
+        with:
+          type: hot-area
+          zone: ${{ steps.detect.outputs.zones }}
+          pr-number: ${{ github.event.pull_request.number }}
+          ttl-seconds: '86400'
+          role: detect
       - name: run-suite
         id: suite
         continue-on-error: true
@@ -109,10 +121,12 @@ jobs:
           workdir: ${{ inputs.workdir }}
           adapter: ${{ inputs.adapter }}
           test-cmd: ${{ inputs.test-cmd }}
-      # Coverage + promotion only make sense when the suite passed.
+      # Coverage + promotion only make sense when the suite passed. continue-on-error
+      # so we can deposit a coverage-gap SIGNAL on a gap, then re-assert the block.
       - name: coverage-gate
         if: ${{ steps.suite.outcome == 'success' }}
         id: gate
+        continue-on-error: true
         uses: dmjohnsonintl/northstar-ci/actions/coverage-gate@v0
         with:
           workdir: ${{ inputs.workdir }}
@@ -120,8 +134,21 @@ jobs:
           coverage-cmd: ${{ inputs.coverage-cmd }}
           min: ${{ inputs.coverage-min }}
           mode: ${{ inputs.coverage-mode }}
+      # coverage-gap (advisory signal) → feeds author-tests / operator readout.
+      - name: signal — coverage-gap
+        if: ${{ steps.gate.outcome == 'failure' }}
+        uses: dmjohnsonintl/northstar-ci/actions/signal@v0
+        with:
+          type: coverage-gap
+          zone: ${{ steps.detect.outputs.zones }}
+          pr-number: ${{ github.event.pull_request.number }}
+          ttl-seconds: '86400'
+          role: coverage-gate
+      # Only promote when BOTH the suite AND the coverage gate passed. (The gate
+      # is continue-on-error above so we could signal on a gap; without this extra
+      # gate.outcome guard, a coverage drop would no longer skip promotion.)
       - name: promote-regression (default branch only)
-        if: ${{ steps.suite.outcome == 'success' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+        if: ${{ steps.suite.outcome == 'success' && steps.gate.outcome == 'success' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
         uses: dmjohnsonintl/northstar-ci/actions/promote-regression@v0
         with:
           workdir: ${{ inputs.workdir }}
@@ -132,6 +159,14 @@ jobs:
         if: ${{ steps.suite.outcome == 'failure' }}
         run: |
           echo "::error::test suite failed"
+          exit 1
+      # Re-assert the coverage block (gate is continue-on-error above so we could
+      # deposit the coverage-gap signal). A coverage gap blocks but does NOT set
+      # suite-failed, so it never routes to the fix-agent — a human handles it.
+      - name: Fail if the coverage gate failed
+        if: ${{ steps.gate.outcome == 'failure' }}
+        run: |
+          echo "::error::coverage gate failed"
           exit 1
 
   # Single-attempt fix-agent: runs ONLY on a real test-suite failure (not a

@@ -38,7 +38,17 @@ JSON Schemas in `schema/substrate/`.
 - `actions/claim` — acquire (atomic) / renew / release
 - `.github/workflows/northstar-gc.yml` — scheduled sweep (also `workflow_call`)
 
+## Wired into the pipeline
+- **Enforcement (claims):** the fix job acquires `ns/claim/<zone>` before fixing and
+  releases after — concurrent fixes on one zone queue instead of colliding.
+- **Advisory (signals):** the gate emits `ns:signal/hot-area` (touched zones, TTL 24h)
+  and `ns:signal/coverage-gap` (on a gap) — to the step-summary readout always, and as
+  PR labels best-effort.
+
 ## Not yet wired (next increment)
-- `route-failure` action + emitting `ns:signal/*` from the pipeline's gate/fix path
-  (the claim primitive exists; wiring it into the fix loop is the follow-up).
-- Signal-label GC via the issue timeline (claims GC is live; signal TTL-by-label is next).
+- **`ns:signal/flaky`** — needs `run-suite` retry-once (fail→retry→pass ⇒ quarantine,
+  don't route to fix).
+- **Signal-label GC via the issue timeline** — claims GC is live; expiring signal
+  labels by TTL (reading label-add time from the timeline) is the next GC increment.
+- **Standalone `route-failure` composite action** — its behavior is currently inlined
+  in the pipeline (resolve zone → acquire claim).

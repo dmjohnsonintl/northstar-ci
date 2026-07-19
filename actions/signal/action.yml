@@ -1,0 +1,47 @@
+name: 'Northstar signal'
+description: 'Deposit an advisory ns:signal/<type> — a mortal, actor-attributed trace. Emitted to the step-summary readout always, and as a PR label best-effort (degrades gracefully when the token lacks labeling rights, so it never requires a new consumer permission).'
+inputs:
+  type:
+    description: 'coverage-gap | hot-area | flaky | stale-bug | agent-unavailable'
+    required: true
+  zone:
+    default: ''
+  pr-number:
+    description: 'PR to carry the inspectable label (empty on push/dispatch)'
+    default: ''
+  ttl-seconds:
+    default: '86400'
+  role:
+    default: 'gate'
+  repo:
+    default: ''
+runs:
+  using: 'composite'
+  steps:
+    - shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        TYPE: ${{ inputs.type }}
+        ZONE: ${{ inputs.zone }}
+        PR: ${{ inputs.pr-number }}
+        TTL: ${{ inputs.ttl-seconds }}
+        ROLE: ${{ inputs.role }}
+        REPO: ${{ inputs.repo || github.repository }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set -uo pipefail
+        LABEL="ns:signal/${TYPE}"
+        ACTOR="ns:actor/${ROLE}@${GITHUB_RUN_ID}"
+        # Build the conformant signal record (mortality + actor + zone addressing).
+        REC="$(node "$ACTION_PATH/../../lib/substrate-cli.js" new-signal \
+          --type "$TYPE" ${ZONE:+--zone "$ZONE"} --role "$ROLE" --run-id "$GITHUB_RUN_ID" \
+          --ttl "$TTL" --now "$(date -u +%FT%TZ)")"
+        echo "[northstar] signal: $REC"
+        # Readout (always) — inspectable even when labeling is not permitted.
+        echo "- 🪧 \`$LABEL\`${ZONE:+ @\`$ZONE\`} · ttl ${TTL}s · $ACTOR" >> "$GITHUB_STEP_SUMMARY"
+        # Inspectable label on the PR (best-effort; uses pull-requests:write).
+        if [ -n "$PR" ]; then
+          gh label create "$LABEL" --repo "$REPO" --color fbca04 --force >/dev/null 2>&1 || true
+          gh pr edit "$PR" --repo "$REPO" --add-label "$LABEL" >/dev/null 2>&1 \
+            || echo "::notice::could not label PR #$PR with $LABEL (need pull-requests:write + the label to exist); signal still recorded in the summary"
+        fi
