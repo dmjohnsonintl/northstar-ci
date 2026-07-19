@@ -1,0 +1,121 @@
+name: Northstar metrics
+# Tier 1 observability (spec §12): a read-model over traces the pipeline already
+# emits — Actions run history, the coverage-baseline git history, Northstar PRs,
+# and ns:* labeled issues. Renders a dashboard to the job summary + commits
+# docs/northstar-status.md; optionally posts a daily digest as a deduped issue.
+# No secrets, pure GitHub primitives.
+on:
+  workflow_call:
+    inputs:
+      repo:
+        description: 'owner/name to read traces from (default: this repo)'
+        type: string
+        default: ''
+      since-days:
+        type: number
+        default: 7
+      baseline-path:
+        description: 'Path to the coverage-baseline JSON for the trend'
+        type: string
+        default: '.northstar/coverage-baseline.json'
+      commit-dashboard:
+        description: 'Commit docs/northstar-status.md back to the repo'
+        type: boolean
+        default: true
+      post-digest:
+        description: 'Post the one-line daily digest as a deduped issue'
+        type: boolean
+        default: false
+      digest-issue-title:
+        type: string
+        default: 'Northstar daily digest'
+
+permissions:
+  contents: write   # commit the refreshed dashboard
+  issues: write     # post the digest (only when post-digest=true)
+
+jobs:
+  metrics:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0   # full history for the coverage trend
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+
+      - name: Gather traces
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ inputs.repo || github.repository }}
+          BASELINE_PATH: ${{ inputs.baseline-path }}
+        run: |
+          set -euo pipefail
+          # Actions run history (pipeline health, green rate, per-workflow).
+          gh run list --repo "$REPO" --limit 200 \
+            --json databaseId,workflowName,conclusion,status,event,createdAt,updatedAt \
+            > runs.json
+          # Coverage trend from the baseline file's own git history.
+          node lib/coverage-history-cli.js --path "$BASELINE_PATH" > coverage.json
+          # Agent/model health from Northstar PRs + ns:* labeled issues.
+          OPENED=$(gh pr list --repo "$REPO" --state all --limit 200 --json headRefName \
+            -q '[.[]|select(.headRefName|startswith("ns/"))]|length')
+          REPRO=$(gh pr list --repo "$REPO" --state all --limit 200 --json headRefName \
+            -q '[.[]|select(.headRefName|startswith("ns/bug/"))]|length')
+          MERGED=$(gh pr list --repo "$REPO" --state merged --limit 200 --json headRefName \
+            -q '[.[]|select(.headRefName|startswith("ns/"))]|length')
+          CLOSED=$(gh pr list --repo "$REPO" --state closed --limit 200 --json headRefName \
+            -q '[.[]|select(.headRefName|startswith("ns/"))]|length')
+          ESC=$(gh issue list --repo "$REPO" --state all --label ns:needs-human --limit 200 --json number -q 'length')
+          NEEDS_INFO=$(gh issue list --repo "$REPO" --state all --label ns:needs-info --limit 200 --json number -q 'length')
+          jq -n \
+            --argjson opened "$OPENED" --argjson escalations "$ESC" \
+            --argjson reproduced "$REPRO" --argjson needsInfo "$NEEDS_INFO" \
+            --argjson merged "$MERGED" --argjson closed "$CLOSED" \
+            '{fixPrsOpened:$opened, escalations:$escalations, reproduced:$reproduced, needsInfo:$needsInfo, fixPrsMerged:$merged, fixPrsClosedUnmerged:$closed}' \
+            > agent.json
+
+      - name: Render dashboard + digest
+        env:
+          REPO: ${{ inputs.repo || github.repository }}
+          SINCE: ${{ inputs.since-days }}
+        run: |
+          set -euo pipefail
+          NOW="$(date -u +%FT%TZ)"
+          mkdir -p docs
+          node lib/metrics-cli.js --runs runs.json --coverage coverage.json --agent agent.json \
+            --now "$NOW" --since "$SINCE" --repo "$REPO" --mode dashboard \
+            | tee -a "$GITHUB_STEP_SUMMARY" > docs/northstar-status.md
+          node lib/metrics-cli.js --runs runs.json --coverage coverage.json --agent agent.json \
+            --now "$NOW" --since "$SINCE" --repo "$REPO" --mode digest > digest.txt
+          echo "digest: $(cat digest.txt)"
+
+      - name: Commit dashboard
+        if: ${{ inputs.commit-dashboard }}
+        run: |
+          set -euo pipefail
+          git config user.name "northstar[bot]"
+          git config user.email "northstar@users.noreply.github.com"
+          git add docs/northstar-status.md
+          if git diff --cached --quiet; then
+            echo "dashboard unchanged"
+          else
+            git commit -m "chore(metrics): refresh northstar-status dashboard [skip ci]"
+            git push
+          fi
+
+      - name: Post daily digest (deduped issue)
+        if: ${{ inputs.post-digest }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ inputs.repo || github.repository }}
+          TITLE: ${{ inputs.digest-issue-title }}
+        run: |
+          set -euo pipefail
+          NUM="$(gh issue list --repo "$REPO" --state open --search "in:title \"$TITLE\"" --json number -q '.[0].number // empty')"
+          if [ -z "$NUM" ]; then
+            gh issue create --repo "$REPO" --title "$TITLE" --body-file digest.txt
+          else
+            gh issue comment "$NUM" --repo "$REPO" --body-file digest.txt
+          fi
