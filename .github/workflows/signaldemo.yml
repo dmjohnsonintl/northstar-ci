@@ -1,0 +1,32 @@
+name: signaldemo
+# Acceptance demo for advisory signal emission: the signal action deposits a
+# mortal, actor-attributed readout (and a PR label when a PR is present).
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  emit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+      - name: emit ns:signal/hot-area (no PR → readout only)
+        uses: ./actions/signal
+        with:
+          type: hot-area
+          zone: src
+          ttl-seconds: '86400'
+          role: detect
+      - name: assert the signal readout landed (label + actor + TTL)
+        run: |
+          set -euo pipefail
+          grep -q 'ns:signal/hot-area' "$GITHUB_STEP_SUMMARY" || { echo "::error::signal label missing from summary"; exit 1; }
+          grep -q 'ns:actor/detect@'   "$GITHUB_STEP_SUMMARY" || { echo "::error::actor identity missing"; exit 1; }
+          grep -q 'ttl 86400s'         "$GITHUB_STEP_SUMMARY" || { echo "::error::TTL (mortality) missing"; exit 1; }
+          echo "advisory signal emitted with actor identity + mortality readout ✅"
