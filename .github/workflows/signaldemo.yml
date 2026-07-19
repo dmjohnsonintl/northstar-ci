@@ -17,16 +17,23 @@ jobs:
         with:
           node-version: '20'
       - name: emit ns:signal/hot-area (no PR → readout only)
+        id: sig
         uses: ./actions/signal
         with:
           type: hot-area
           zone: src
           ttl-seconds: '86400'
           role: detect
-      - name: assert the signal readout landed (label + actor + TTL)
+      - name: assert the emitted record is well-formed and conformant
+        env:
+          REC: ${{ steps.sig.outputs.record }}
+          LABEL: ${{ steps.sig.outputs.label }}
         run: |
           set -euo pipefail
-          grep -q 'ns:signal/hot-area' "$GITHUB_STEP_SUMMARY" || { echo "::error::signal label missing from summary"; exit 1; }
-          grep -q 'ns:actor/detect@'   "$GITHUB_STEP_SUMMARY" || { echo "::error::actor identity missing"; exit 1; }
-          grep -q 'ttl 86400s'         "$GITHUB_STEP_SUMMARY" || { echo "::error::TTL (mortality) missing"; exit 1; }
-          echo "advisory signal emitted with actor identity + mortality readout ✅"
+          [ "$LABEL" = "ns:signal/hot-area" ] || { echo "::error::wrong label: $LABEL"; exit 1; }
+          echo "$REC" | grep -q '"type":"hot-area"' || { echo "::error::type missing"; exit 1; }
+          echo "$REC" | grep -q '"role":"detect"'   || { echo "::error::actor identity missing"; exit 1; }
+          echo "$REC" | grep -q '"ttlSeconds":86400' || { echo "::error::TTL (mortality) missing"; exit 1; }
+          printf '%s' "$REC" > /tmp/sig.json
+          node lib/substrate-cli.js validate --record /tmp/sig.json >/dev/null || { echo "::error::signal is not substrate-conformant"; exit 1; }
+          echo "advisory signal emitted, well-formed, and substrate-conformant ✅"

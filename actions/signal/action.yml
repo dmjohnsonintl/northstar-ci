@@ -15,10 +15,18 @@ inputs:
     default: 'gate'
   repo:
     default: ''
+outputs:
+  record:
+    description: 'The conformant signal record (JSON)'
+    value: ${{ steps.emit.outputs.record }}
+  label:
+    description: 'The ns:signal/<type> label'
+    value: ${{ steps.emit.outputs.label }}
 runs:
   using: 'composite'
   steps:
-    - shell: bash
+    - id: emit
+      shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
         TYPE: ${{ inputs.type }}
@@ -37,6 +45,8 @@ runs:
           --type "$TYPE" ${ZONE:+--zone "$ZONE"} --role "$ROLE" --run-id "$GITHUB_RUN_ID" \
           --ttl "$TTL" --now "$(date -u +%FT%TZ)")"
         echo "[northstar] signal: $REC"
+        echo "record=$REC" >> "$GITHUB_OUTPUT"
+        echo "label=$LABEL" >> "$GITHUB_OUTPUT"
         # Readout (always) — inspectable even when labeling is not permitted.
         echo "- 🪧 \`$LABEL\`${ZONE:+ @\`$ZONE\`} · ttl ${TTL}s · $ACTOR" >> "$GITHUB_STEP_SUMMARY"
         # Inspectable label on the PR (best-effort; uses pull-requests:write).
