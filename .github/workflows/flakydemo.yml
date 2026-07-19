@@ -1,0 +1,30 @@
+name: flakydemo
+# Acceptance demo for retry-once flake detection: a suite that fails then passes
+# on retry is reported flaky (exit 0), so it is quarantined — never routed to the
+# fix-agent.
+on:
+  workflow_dispatch:
+
+jobs:
+  flake:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+      - name: run-suite on a flaky fixture (retry once)
+        id: suite
+        uses: ./actions/run-suite
+        with:
+          workdir: examples/flakydemo
+          adapter: js-ts
+      - name: assert flake detected and suite treated as green
+        env:
+          FLAKY: ${{ steps.suite.outputs.flaky }}
+          ATTEMPTS: ${{ steps.suite.outputs.attempts }}
+        run: |
+          set -euo pipefail
+          [ "$FLAKY" = "true" ]  || { echo "::error::expected flaky=true, got '$FLAKY'"; exit 1; }
+          [ "$ATTEMPTS" = "2" ]  || { echo "::error::expected 2 attempts, got '$ATTEMPTS'"; exit 1; }
+          echo "flake detected on retry ($ATTEMPTS attempts) → quarantined, exit 0, not routed to fix ✅"

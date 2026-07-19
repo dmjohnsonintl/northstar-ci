@@ -1,0 +1,8 @@
+{
+  "name": "flakydemo",
+  "private": true,
+  "description": "Fixture: a non-deterministic (flaky) suite for retry-once detection.",
+  "scripts": {
+    "test:ci": "node --test"
+  }
+}

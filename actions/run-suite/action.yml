@@ -1,5 +1,5 @@
 name: 'Northstar run-suite'
-description: 'Run the test suite via the configured language adapter.'
+description: 'Run the test suite via the configured language adapter, with retry-once flake detection. A suite that fails then passes on retry is FLAKY (output flaky=true, exit 0) — quarantined, not routed to the fix-agent. Only a deterministic failure (all attempts fail) exits non-zero.'
 inputs:
   workdir:
     description: 'Directory to run tests in'
@@ -10,11 +10,47 @@ inputs:
   test-cmd:
     description: 'Test command (empty = the adapter default)'
     default: ''
+  retries:
+    description: 'Retries after an initial failure (1 = retry once; 0 = no retry, e.g. when capturing a known-failing log)'
+    default: '1'
+outputs:
+  flaky:
+    description: '"true" when the suite failed then passed on retry (non-deterministic)'
+    value: ${{ steps.run.outputs.flaky }}
+  attempts:
+    description: 'How many times the suite was run'
+    value: ${{ steps.run.outputs.attempts }}
 runs:
   using: 'composite'
   steps:
-    - shell: bash
+    - id: run
+      shell: bash
       env:
         NS_WORKDIR: ${{ inputs.workdir }}
         NS_TEST_CMD: ${{ inputs.test-cmd }}
-      run: bash "${{ github.action_path }}/../../adapters/${{ inputs.adapter }}/run.sh"
+        RUN_SH: ${{ github.action_path }}/../../adapters/${{ inputs.adapter }}/run.sh
+        RETRIES: ${{ inputs.retries }}
+      run: |
+        set -uo pipefail
+        attempt=0
+        flaky=false
+        code=0
+        while :; do
+          attempt=$((attempt + 1))
+          if bash "$RUN_SH"; then
+            # A pass on any attempt after the first means the failure was a flake.
+            [ "$attempt" -gt 1 ] && flaky=true
+            code=0
+            break
+          fi
+          code=$?
+          if [ "$attempt" -le "$RETRIES" ]; then
+            echo "::warning::suite failed on attempt $attempt — retrying once (possible flake)"
+            continue
+          fi
+          break
+        done
+        echo "flaky=$flaky" >> "$GITHUB_OUTPUT"
+        echo "attempts=$attempt" >> "$GITHUB_OUTPUT"
+        [ "$flaky" = "true" ] && echo "[northstar] suite is FLAKY (passed on retry after $((attempt - 1)) failure(s)) — quarantining, not routing to fix"
+        exit "$code"

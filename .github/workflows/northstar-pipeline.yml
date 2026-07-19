@@ -121,6 +121,17 @@ jobs:
           workdir: ${{ inputs.workdir }}
           adapter: ${{ inputs.adapter }}
           test-cmd: ${{ inputs.test-cmd }}
+      # flaky (advisory signal): the suite failed then passed on retry. Quarantine
+      # it — this run is treated as green (no fix-agent), but the flake is flagged.
+      - name: signal — flaky
+        if: ${{ steps.suite.outputs.flaky == 'true' }}
+        uses: dmjohnsonintl/northstar-ci/actions/signal@v0
+        with:
+          type: flaky
+          zone: ${{ steps.detect.outputs.zones }}
+          pr-number: ${{ github.event.pull_request.number }}
+          ttl-seconds: '86400'
+          role: run-suite
       # Coverage + promotion only make sense when the suite passed. continue-on-error
       # so we can deposit a coverage-gap SIGNAL on a gap, then re-assert the block.
       - name: coverage-gate
@@ -231,6 +242,7 @@ jobs:
           workdir: ${{ inputs.workdir }}
           adapter: ${{ inputs.adapter }}
           test-cmd: ${{ inputs.test-cmd }}
+          retries: '0'   # deterministic failure already established; capture it once
       - name: fix-agent
         if: ${{ steps.claim.outputs.acquired == 'true' }}
         uses: dmjohnsonintl/northstar-ci/actions/fix-agent@v0
