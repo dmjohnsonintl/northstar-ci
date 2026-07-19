@@ -6,8 +6,12 @@ inputs:
   engine:
     description: 'stub | claude-code'
     default: 'stub'
+  adapter:
+    description: 'Language adapter: js-ts | python'
+    default: 'js-ts'
   test-cmd:
-    default: 'npm run test:ci'
+    description: 'Test command for the re-run (empty = adapter default)'
+    default: ''
   failing-log:
     description: 'Path to the failing-test log (repo-root-relative)'
     default: 'artifacts/test.log'
@@ -51,7 +55,7 @@ runs:
         RUN_ID: ${{ github.run_id }}
       run: |
         set +e
-        bash "${{ github.action_path }}/../../adapters/js-ts/run.sh"; PASS=$?
+        bash "${{ github.action_path }}/../../adapters/${{ inputs.adapter }}/run.sh"; PASS=$?
         if [ "$PASS" -eq 0 ]; then
           git push -u origin "$BRANCH"
           if gh pr create --head "$BRANCH" \

@@ -5,7 +5,7 @@
   "additionalProperties": false,
   "required": ["adapter", "coverage", "zones"],
   "properties": {
-    "adapter": { "enum": ["js-ts"] },
+    "adapter": { "enum": ["js-ts", "python"] },
     "coverage": {
       "type": "object",
       "additionalProperties": false,

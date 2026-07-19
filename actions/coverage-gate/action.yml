@@ -4,9 +4,12 @@ inputs:
   workdir:
     description: 'Directory to run coverage in'
     default: '.'
+  adapter:
+    description: 'Language adapter: js-ts | python'
+    default: 'js-ts'
   coverage-cmd:
-    description: 'Coverage command emitting coverage/coverage-summary.json'
-    default: 'npm run test:coverage'
+    description: 'Coverage command (empty = the adapter default)'
+    default: ''
   min:
     description: 'Minimum acceptable line coverage pct'
     default: '80'
@@ -29,7 +32,7 @@ runs:
         NS_WORKDIR: ${{ inputs.workdir }}
         NS_COV_CMD: ${{ inputs.coverage-cmd }}
       run: |
-        bash "${{ github.action_path }}/../../adapters/js-ts/coverage.sh" | tee /tmp/ns-cov.out
+        bash "${{ github.action_path }}/../../adapters/${{ inputs.adapter }}/coverage.sh" | tee /tmp/ns-cov.out
         echo "summary=$(grep '^summary=' /tmp/ns-cov.out | cut -d= -f2-)" >> "$GITHUB_OUTPUT"
     - id: gate
       shell: bash
