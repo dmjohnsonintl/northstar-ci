@@ -4,7 +4,7 @@
   "private": true,
   "description": "Stigmergic agent-driven testing package for GitHub Actions",
   "scripts": {
-    "test": "node --test lib/*.test.js adapters/js-ts/*.test.js engine/*.test.js"
+    "test": "node --test lib/*.test.js adapters/*/*.test.js engine/*.test.js"
   },
   "license": "UNLICENSED"
 }
