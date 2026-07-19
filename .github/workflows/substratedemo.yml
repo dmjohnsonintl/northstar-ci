@@ -1,0 +1,93 @@
+name: substratedemo
+# Acceptance demo for the coordination substrate: proves atomic claim acquire,
+# queue-on-conflict, renew, release — and that GC classifies a synthetic stale
+# claim as reclaimable (deterministic, no waiting for a real TTL).
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  claim-lifecycle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+
+      - name: acquire (expect success)
+        id: a1
+        uses: ./actions/claim
+        with:
+          mode: acquire
+          zone: demo
+      - name: second acquire on the same zone (expect queued)
+        id: a2
+        uses: ./actions/claim
+        with:
+          mode: acquire
+          zone: demo
+      - name: renew
+        uses: ./actions/claim
+        with:
+          mode: renew
+          zone: demo
+      - name: assert acquire then queue
+        env:
+          FIRST: ${{ steps.a1.outputs.acquired }}
+          SECOND: ${{ steps.a2.outputs.acquired }}
+          HOLDER: ${{ steps.a2.outputs.holder }}
+        run: |
+          set -euo pipefail
+          [ "$FIRST" = "true" ]  || { echo "::error::first acquire should have succeeded"; exit 1; }
+          [ "$SECOND" = "false" ] || { echo "::error::second acquire on a held zone should queue"; exit 1; }
+          echo "atomic claim OK — held by ${HOLDER}, second run queued ✅"
+      - name: release
+        uses: ./actions/claim
+        with:
+          mode: release
+          zone: demo
+      - name: re-acquire after release (expect success), then clean up
+        id: a3
+        uses: ./actions/claim
+        with:
+          mode: acquire
+          zone: demo
+      - name: assert free after release
+        env:
+          THIRD: ${{ steps.a3.outputs.acquired }}
+        run: |
+          set -euo pipefail
+          [ "$THIRD" = "true" ] || { echo "::error::zone should be free after release"; exit 1; }
+          echo "release freed the zone ✅"
+      - name: final release (cleanup)
+        uses: ./actions/claim
+        with:
+          mode: release
+          zone: demo
+
+  gc-decision:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+      - name: GC reclaims a synthetic stale claim (deterministic)
+        run: |
+          set -euo pipefail
+          NOW="2026-07-18T12:00:00Z"
+          # A claim created 3h ago, never renewed → past TTL(1h) AND stale(2h).
+          node lib/substrate-cli.js new-claim --zone stalezone --role fixer --run-id 42 --ttl 3600 \
+            --now "2026-07-18T09:00:00Z" > /tmp/one.json
+          jq -s '.' /tmp/one.json > records.json
+          node lib/substrate-cli.js sweep --records records.json --now "$NOW" \
+            --stale-after 7200 --starvation 21600 > decisions.json
+          RECLAIMED="$(jq -r '.reclaimClaims[0].zone // empty' decisions.json)"
+          EMITTED="$(jq -r '.emit[0].type // empty' decisions.json)"
+          [ "$RECLAIMED" = "stalezone" ] || { echo "::error::stale claim should be reclaimable"; cat decisions.json; exit 1; }
+          [ "$EMITTED" = "reclaimed" ]   || { echo "::error::a reclaimed signal should be emitted"; exit 1; }
+          echo "GC correctly reclaimed the stale claim and emitted a reclaimed signal ✅"

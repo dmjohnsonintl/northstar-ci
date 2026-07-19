@@ -1,0 +1,84 @@
+name: Northstar GC
+# Mortality sweep (spec §6 Trigger C, §7.2): expire stale claims so a crashed
+# agent never permanently locks a zone. Reclaim requires TTL + stale renewal (two
+# conditions, never TTL alone); busy-but-alive claims held past the starvation
+# threshold escalate to a human instead of spinning. Pure decisions come from
+# lib/substrate; this workflow just applies them via gh.
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      repo:
+        type: string
+        default: ''
+      stale-after-seconds:
+        type: number
+        default: 7200
+      starvation-seconds:
+        type: number
+        default: 21600
+
+permissions:
+  contents: write   # delete stale claim branches
+  issues: write     # escalate starved zones
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+
+      - name: Sweep claims
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ inputs.repo || github.repository }}
+          STALE_AFTER: ${{ inputs.stale-after-seconds || 7200 }}
+          STARVATION: ${{ inputs.starvation-seconds || 21600 }}
+        run: |
+          set -uo pipefail
+          NOW="$(date -u +%FT%TZ)"
+          mkdir -p /tmp/claims
+
+          # Collect claim records from every ns/claim/* branch.
+          mapfile -t BRANCHES < <(git ls-remote --heads origin 'ns/claim/*' | awk '{print $2}' | sed 's#refs/heads/##')
+          for b in "${BRANCHES[@]:-}"; do
+            [ -z "$b" ] && continue
+            zone="${b#ns/claim/}"
+            gh api "repos/$REPO/contents/.northstar/claims/$zone.json?ref=$b" -q '.content' 2>/dev/null \
+              | base64 -d > "/tmp/claims/${zone//\//__}.json" 2>/dev/null || true
+          done
+          if ls /tmp/claims/*.json >/dev/null 2>&1; then jq -s '.' /tmp/claims/*.json > records.json; else echo '[]' > records.json; fi
+          echo "claims found: $(jq length records.json)"
+
+          node lib/substrate-cli.js sweep --records records.json --now "$NOW" \
+            --stale-after "$STALE_AFTER" --starvation "$STARVATION" > decisions.json
+
+          {
+            echo "## Northstar GC sweep"
+            echo ""
+            echo "- reclaimed (crashed): $(jq '.reclaimClaims|length' decisions.json)"
+            echo "- starved (escalated): $(jq '.starveClaims|length' decisions.json)"
+            echo "- signals expired: $(jq '.expireSignals|length' decisions.json)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # Reclaim: delete the stale claim branch; the crashed agent's zone is freed
+          # and its failure should be re-queued (surfaced as a reclaimed signal).
+          for zone in $(jq -r '.reclaimClaims[].zone' decisions.json); do
+            gh api -X DELETE "repos/$REPO/git/refs/heads/ns/claim/$zone" >/dev/null 2>&1 || true
+            echo "::warning::reclaimed stale claim on zone '$zone' (TTL + stale renewal) → re-queue"
+          done
+
+          # Starve: escalate to a human (deduped), rather than spin on a hot zone.
+          for zone in $(jq -r '.starveClaims[].zone' decisions.json); do
+            TITLE="Northstar: zone '$zone' starved (claim held past threshold)"
+            NUM="$(gh issue list --repo "$REPO" --state open --label ns:needs-human --search "in:title \"$TITLE\"" --json number -q '.[0].number // empty')"
+            if [ -z "$NUM" ]; then
+              gh issue create --repo "$REPO" --title "$TITLE" --label ns:needs-human \
+                --body "Zone \`$zone\` has held a claim longer than the starvation threshold. A human should intervene rather than the pipeline spinning." >/dev/null 2>&1 || true
+            fi
+          done

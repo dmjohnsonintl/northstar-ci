@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://northstar.dev/schema/substrate/claim.schema.json",
+  "title": "Northstar enforcement claim",
+  "description": "A mortal, actor-attributed, zone-scoped enforcement claim (Agent Coordination Substrate-aligned).",
+  "type": "object",
+  "required": ["kind", "zone", "actor", "ttlSeconds", "createdAt", "renewedAt", "status"],
+  "additionalProperties": false,
+  "properties": {
+    "kind": { "const": "claim" },
+    "zone": { "type": "string", "minLength": 1, "description": "Zone addressing" },
+    "actor": {
+      "type": "object",
+      "required": ["role", "runId"],
+      "additionalProperties": false,
+      "properties": {
+        "role": { "type": "string", "minLength": 1 },
+        "runId": { "type": "string", "minLength": 1 }
+      },
+      "description": "Actor identity"
+    },
+    "ttlSeconds": { "type": "number", "exclusiveMinimum": 0, "description": "Mortality" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "renewedAt": { "type": "string", "format": "date-time", "description": "Renewal resets the TTL clock" },
+    "status": { "enum": ["active", "released", "reclaimed"] }
+  }
+}

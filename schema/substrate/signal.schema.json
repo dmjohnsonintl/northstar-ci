@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://northstar.dev/schema/substrate/signal.schema.json",
+  "title": "Northstar advisory signal",
+  "description": "A mortal, actor-attributed advisory signal (Agent Coordination Substrate-aligned).",
+  "type": "object",
+  "required": ["kind", "type", "actor", "ttlSeconds", "createdAt"],
+  "additionalProperties": false,
+  "properties": {
+    "kind": { "const": "signal" },
+    "type": {
+      "type": "string",
+      "minLength": 1,
+      "description": "coverage-gap | hot-area | flaky | reclaimed | stale-bug | agent-unavailable | needs-info"
+    },
+    "zone": { "type": ["string", "null"], "description": "Optional zone addressing" },
+    "actor": {
+      "type": "object",
+      "required": ["role", "runId"],
+      "additionalProperties": false,
+      "properties": {
+        "role": { "type": "string", "minLength": 1 },
+        "runId": { "type": "string", "minLength": 1 }
+      },
+      "description": "Actor identity"
+    },
+    "ttlSeconds": { "type": "number", "exclusiveMinimum": 0, "description": "Mortality" },
+    "createdAt": { "type": "string", "format": "date-time" }
+  }
+}

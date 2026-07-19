@@ -1,0 +1,92 @@
+name: 'Northstar claim'
+description: 'Acquire (atomically) / renew / release a zone enforcement claim. The lock IS an atomically-created claim branch ns/claim/<zone> (GitHub refs API returns 422 if it already exists); the ns:claim/zone/<zone> label is its inspectable shadow. Claim metadata lives in .northstar/claims/<zone>.json on that branch.'
+inputs:
+  mode:
+    description: 'acquire | renew | release'
+    required: true
+  zone:
+    required: true
+  role:
+    default: 'fixer'
+  ttl-seconds:
+    default: '3600'
+  issue-number:
+    description: 'Optional issue/PR to carry the inspectable claim label'
+    default: ''
+  repo:
+    description: 'owner/name (default: this repo)'
+    default: ''
+outputs:
+  acquired:
+    description: '"true" when this run now holds the claim (acquire mode)'
+    value: ${{ steps.claim.outputs.acquired }}
+  holder:
+    description: 'actor tag of the current holder when the acquire was queued'
+    value: ${{ steps.claim.outputs.holder }}
+runs:
+  using: 'composite'
+  steps:
+    - id: claim
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        MODE: ${{ inputs.mode }}
+        ZONE: ${{ inputs.zone }}
+        ROLE: ${{ inputs.role }}
+        TTL: ${{ inputs.ttl-seconds }}
+        ISSUE: ${{ inputs.issue-number }}
+        REPO: ${{ inputs.repo || github.repository }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set -uo pipefail
+        BRANCH="ns/claim/${ZONE}"
+        FILE=".northstar/claims/${ZONE}.json"
+        LABEL="ns:claim/zone/${ZONE}"
+        NOW="$(date -u +%FT%TZ)"
+        CLI="$ACTION_PATH/../../lib/substrate-cli.js"
+
+        put_file() { # $1=content(json) $2=message [$3=sha]
+          local content msg args
+          content="$(printf '%s' "$1" | base64 | tr -d '\n')"
+          msg="$2"
+          args=(-X PUT "repos/$REPO/contents/$FILE" -f message="$msg" -f content="$content" -f branch="$BRANCH")
+          [ -n "${3:-}" ] && args+=(-f sha="$3")
+          gh api "${args[@]}" >/dev/null
+        }
+        read_claim() { gh api "repos/$REPO/contents/$FILE?ref=$BRANCH" -q '.content' 2>/dev/null | base64 -d 2>/dev/null; }
+        file_sha()  { gh api "repos/$REPO/contents/$FILE?ref=$BRANCH" -q '.sha' 2>/dev/null; }
+
+        case "$MODE" in
+          acquire)
+            # Atomic: create-ref returns 422 if the claim branch already exists.
+            if gh api -X POST "repos/$REPO/git/refs" -f ref="refs/heads/$BRANCH" -f sha="$GITHUB_SHA" >/dev/null 2>&1; then
+              CLAIM="$(node "$CLI" new-claim --zone "$ZONE" --role "$ROLE" --run-id "$GITHUB_RUN_ID" --ttl "$TTL" --now "$NOW")"
+              put_file "$CLAIM" "ns: acquire claim $ZONE (run $GITHUB_RUN_ID)"
+              if [ -n "$ISSUE" ]; then
+                gh label create "$LABEL" --repo "$REPO" --color 5319e7 --force >/dev/null 2>&1 || true
+                gh issue edit "$ISSUE" --repo "$REPO" --add-label "$LABEL" >/dev/null 2>&1 || true
+              fi
+              echo "acquired=true" >> "$GITHUB_OUTPUT"
+              echo "[northstar] claim acquired: $ZONE"
+            else
+              HOLDER="$(read_claim | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const c=JSON.parse(s);process.stdout.write(`ns:actor/${c.actor.role}@${c.actor.runId}`)}catch{}})')"
+              echo "acquired=false" >> "$GITHUB_OUTPUT"
+              echo "holder=$HOLDER" >> "$GITHUB_OUTPUT"
+              echo "[northstar] claim on $ZONE is held by ${HOLDER:-another run} → queued"
+            fi
+            ;;
+          renew)
+            CUR="$(read_claim)"
+            if [ -z "$CUR" ]; then echo "::warning::no claim to renew for $ZONE"; exit 0; fi
+            NEW="$(printf '%s' "$CUR" | NOW="$NOW" node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const c=JSON.parse(s);c.renewedAt=process.env.NOW;process.stdout.write(JSON.stringify(c))})')"
+            put_file "$NEW" "ns: renew claim $ZONE (run $GITHUB_RUN_ID)" "$(file_sha)"
+            echo "[northstar] claim renewed: $ZONE"
+            ;;
+          release)
+            gh api -X DELETE "repos/$REPO/git/refs/heads/$BRANCH" >/dev/null 2>&1 || true
+            [ -n "$ISSUE" ] && gh issue edit "$ISSUE" --repo "$REPO" --remove-label "$LABEL" >/dev/null 2>&1 || true
+            echo "[northstar] claim released: $ZONE"
+            ;;
+          *)
+            echo "::error::unknown mode '$MODE' (acquire|renew|release)"; exit 1;;
+        esac
