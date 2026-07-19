@@ -23,3 +23,30 @@ test('stub engine commits a fix on the target branch', () => {
   const log = execFileSync('git', ['log', '--oneline', 'ns/fix/x'], { cwd: dir, encoding: 'utf8' });
   assert.match(log, /northstar-stub/);
 });
+
+test('stub reproduce engine commits a failing test onto the branch', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ns-rep-'));
+  execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: dir });
+  execFileSync('git', ['config', 'user.email', 't@t'], { cwd: dir });
+  execFileSync('git', ['config', 'user.name', 't'], { cwd: dir });
+  fs.writeFileSync(path.join(dir, 'x.txt'), 'x');
+  execFileSync('git', ['add', '.'], { cwd: dir });
+  execFileSync('git', ['commit', '-qm', 'init'], { cwd: dir });
+  execFileSync('git', ['checkout', '-q', '-b', 'ns/bug/1'], { cwd: dir });
+  execFileSync('bash', [path.resolve('engine/stub/reproduce.sh')], {
+    cwd: dir,
+    env: { ...process.env, NS_FIX_WORKDIR: dir, NS_BUG_TITLE: 'x', NS_BUG_BODY: 'y' },
+  });
+  assert.ok(fs.existsSync(path.join(dir, 'northstar_repro.test.js')));
+  // and the reproducing test genuinely fails before any fix. Run the child with a
+  // clean env — inheriting NODE_TEST_CONTEXT would suppress its failure exit code.
+  const cleanEnv = { ...process.env };
+  delete cleanEnv.NODE_TEST_CONTEXT;
+  let failed = false;
+  try {
+    execFileSync('node', ['--test', 'northstar_repro.test.js'], { cwd: dir, stdio: 'ignore', env: cleanEnv });
+  } catch {
+    failed = true;
+  }
+  assert.equal(failed, true);
+});

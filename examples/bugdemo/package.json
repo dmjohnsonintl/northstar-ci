@@ -1,0 +1,7 @@
+{
+  "name": "ns-bugdemo",
+  "private": true,
+  "scripts": {
+    "test:ci": "node --test"
+  }
+}

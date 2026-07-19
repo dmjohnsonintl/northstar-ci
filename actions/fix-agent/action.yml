@@ -1,5 +1,5 @@
 name: 'Northstar fix-agent (single attempt)'
-description: 'Run the configured engine once on a fix branch; on green open a PR, else label needs-human. Never auto-merges.'
+description: 'Run the configured engine once on a fix branch; on green open a PR, else escalate. Never auto-merges.'
 inputs:
   workdir:
     default: '.'
@@ -15,18 +15,33 @@ inputs:
   failing-log:
     description: 'Path to the failing-test log (repo-root-relative)'
     default: 'artifacts/test.log'
+  fix-branch:
+    description: 'Existing branch to fix on (e.g. a bug branch). Empty = create ns/fix/<run_id>.'
+    default: ''
+  pr-title:
+    description: 'PR title (empty = default)'
+    default: ''
   anthropic-api-key:
     description: 'Required when engine=claude-code'
     default: ''
 runs:
   using: 'composite'
   steps:
-    - name: Create fix branch
+    - name: Resolve fix branch
+      id: branch
       shell: bash
+      env:
+        FIX_BRANCH: ${{ inputs.fix-branch }}
       run: |
         git config user.name "northstar[bot]"
         git config user.email "northstar@users.noreply.github.com"
-        git checkout -b "ns/fix/${GITHUB_RUN_ID}"
+        if [ -n "$FIX_BRANCH" ]; then
+          BRANCH="$FIX_BRANCH"   # already checked out by the caller (e.g. reproduce-bug)
+        else
+          BRANCH="ns/fix/${GITHUB_RUN_ID}"
+          git checkout -b "$BRANCH"
+        fi
+        echo "name=$BRANCH" >> "$GITHUB_OUTPUT"
 
     - name: Engine (stub)
       if: ${{ inputs.engine == 'stub' }}
@@ -51,16 +66,19 @@ runs:
         GH_TOKEN: ${{ github.token }}
         NS_WORKDIR: ${{ inputs.workdir }}
         NS_TEST_CMD: ${{ inputs.test-cmd }}
-        BRANCH: ns/fix/${{ github.run_id }}
+        BRANCH: ${{ steps.branch.outputs.name }}
         RUN_ID: ${{ github.run_id }}
+        PR_TITLE: ${{ inputs.pr-title }}
       run: |
         set +e
         bash "${{ github.action_path }}/../../adapters/${{ inputs.adapter }}/run.sh"; PASS=$?
+        TITLE="${PR_TITLE:-Northstar fix (run ${RUN_ID})}"
         if [ "$PASS" -eq 0 ]; then
           git push -u origin "$BRANCH"
           if gh pr create --head "$BRANCH" \
-               --title "Northstar fix (run ${RUN_ID})" \
+               --title "$TITLE" \
                --body "Automated single-attempt fix by the '${{ inputs.engine }}' engine. **Human review required — nothing auto-merges.**"; then
+            echo "pr_url=$(gh pr view "$BRANCH" --json url -q .url 2>/dev/null)" >> "$GITHUB_OUTPUT"
             echo "[northstar] green after fix → PR opened on $BRANCH"
           else
             echo "::warning::Fix is green on branch $BRANCH, but PR creation failed. Enable 'Allow GitHub Actions to create and approve pull requests' (repo Settings → Actions → General → Workflow permissions), or open the PR from $BRANCH manually."

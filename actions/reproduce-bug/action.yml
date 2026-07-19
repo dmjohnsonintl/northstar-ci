@@ -1,0 +1,53 @@
+name: 'Northstar reproduce-bug'
+description: 'On a bug branch, run the reproduce engine to write a FAILING test that reproduces a reported bug.'
+inputs:
+  workdir:
+    default: '.'
+  engine:
+    description: 'stub | claude-code'
+    default: 'stub'
+  issue-number:
+    description: 'The ns:bug issue number (used for the branch name)'
+    required: true
+  issue-title:
+    default: ''
+  issue-body:
+    default: ''
+  anthropic-api-key:
+    description: 'Required when engine=claude-code'
+    default: ''
+outputs:
+  branch:
+    description: 'The bug branch the reproducing test was committed to'
+    value: ${{ steps.branch.outputs.name }}
+runs:
+  using: 'composite'
+  steps:
+    - name: Create bug branch
+      id: branch
+      shell: bash
+      run: |
+        git config user.name "northstar[bot]"
+        git config user.email "northstar@users.noreply.github.com"
+        BRANCH="ns/bug/${{ inputs.issue-number }}"
+        git checkout -b "$BRANCH"
+        echo "name=$BRANCH" >> "$GITHUB_OUTPUT"
+
+    - name: Reproduce (stub)
+      if: ${{ inputs.engine == 'stub' }}
+      shell: bash
+      env:
+        NS_FIX_WORKDIR: ${{ inputs.workdir }}
+        NS_BUG_TITLE: ${{ inputs.issue-title }}
+        NS_BUG_BODY: ${{ inputs.issue-body }}
+      run: bash "${{ github.action_path }}/../../engine/stub/reproduce.sh"
+
+    - name: Reproduce (claude-code)
+      if: ${{ inputs.engine == 'claude-code' }}
+      shell: bash
+      env:
+        NS_FIX_WORKDIR: ${{ inputs.workdir }}
+        NS_BUG_TITLE: ${{ inputs.issue-title }}
+        NS_BUG_BODY: ${{ inputs.issue-body }}
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
+      run: bash "${{ github.action_path }}/../../engine/claude-code/reproduce.sh"

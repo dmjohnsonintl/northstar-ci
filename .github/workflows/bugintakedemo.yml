@@ -1,0 +1,17 @@
+name: bugintakedemo
+on:
+  issues:
+    types: [labeled]
+jobs:
+  bugintake:
+    # Only the ns:bug label opens the intake door.
+    if: ${{ github.event.label.name == 'ns:bug' }}
+    uses: ./.github/workflows/northstar-bugintake.yml
+    with:
+      workdir: examples/bugdemo
+      adapter: js-ts
+      engine: claude-code
+      issue-number: ${{ github.event.issue.number }}
+      issue-title: ${{ github.event.issue.title }}
+      issue-body: ${{ github.event.issue.body }}
+    secrets: inherit

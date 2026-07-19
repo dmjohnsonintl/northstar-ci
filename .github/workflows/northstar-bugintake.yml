@@ -1,0 +1,123 @@
+name: Northstar bug-intake
+on:
+  workflow_call:
+    inputs:
+      workdir:
+        type: string
+        default: '.'
+      adapter:
+        type: string
+        default: 'js-ts'
+      install-cmd:
+        type: string
+        default: 'npm ci'
+      test-cmd:
+        type: string
+        default: ''
+      node-version:
+        type: string
+        default: '18'
+      python-version:
+        type: string
+        default: '3.11'
+      engine:
+        description: 'stub | claude-code (reproduce needs claude-code for real bugs)'
+        type: string
+        default: 'claude-code'
+      issue-number:
+        type: number
+        required: true
+      issue-title:
+        type: string
+        default: ''
+      issue-body:
+        type: string
+        default: ''
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: northstar-bug-${{ inputs.issue-number }}
+  cancel-in-progress: true
+
+jobs:
+  intake:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ inputs.node-version }}
+      - if: ${{ inputs.adapter == 'python' }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+      - name: Install project deps
+        working-directory: ${{ inputs.workdir }}
+        env:
+          INSTALL_CMD: ${{ inputs.install-cmd }}
+        run: eval "$INSTALL_CMD"
+
+      # 1) Reproduce first: write a NEW failing test from the bug report.
+      - name: reproduce-bug
+        id: repro
+        continue-on-error: true
+        uses: dmjohnsonintl/northstar-ci/actions/reproduce-bug@v0
+        with:
+          workdir: ${{ inputs.workdir }}
+          engine: ${{ inputs.engine }}
+          issue-number: ${{ inputs.issue-number }}
+          issue-title: ${{ inputs.issue-title }}
+          issue-body: ${{ inputs.issue-body }}
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      # 2) Verify the reproduction: the new test should FAIL (that proves the bug).
+      - name: Verify reproduction
+        id: verify
+        if: ${{ steps.repro.outcome == 'success' }}
+        continue-on-error: true
+        uses: dmjohnsonintl/northstar-ci/actions/run-suite@v0
+        with:
+          workdir: ${{ inputs.workdir }}
+          adapter: ${{ inputs.adapter }}
+          test-cmd: ${{ inputs.test-cmd }}
+
+      # 3a) Reproduced (test written AND it fails) → fix on the SAME bug branch.
+      - name: Fix on the bug branch
+        id: fix
+        if: ${{ steps.repro.outcome == 'success' && steps.verify.outcome == 'failure' }}
+        uses: dmjohnsonintl/northstar-ci/actions/fix-agent@v0
+        with:
+          workdir: ${{ inputs.workdir }}
+          adapter: ${{ inputs.adapter }}
+          engine: ${{ inputs.engine }}
+          test-cmd: ${{ inputs.test-cmd }}
+          fix-branch: ${{ steps.repro.outputs.branch }}
+          failing-log: ${{ inputs.workdir }}/artifacts/test.log
+          pr-title: "Northstar: fix bug #${{ inputs.issue-number }} — ${{ inputs.issue-title }}"
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      - name: Comment — fix PR opened
+        if: ${{ steps.repro.outcome == 'success' && steps.verify.outcome == 'failure' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUM: ${{ inputs.issue-number }}
+          BRANCH: ${{ steps.repro.outputs.branch }}
+        run: |
+          URL="$(gh pr list --head "$BRANCH" --json url -q '.[0].url' 2>/dev/null)"
+          gh issue comment "$NUM" --body "🔁 Northstar reproduced this bug with a failing test on \`$BRANCH\`, then applied a single-attempt fix. ${URL:+A PR is open for review: $URL}${URL:-The fix is on branch \`$BRANCH\` (enable Actions-can-create-PRs to auto-open the PR).} Nothing auto-merges." || true
+
+      # 3b) Could not reproduce (no test written, or the test passed) → needs-info.
+      - name: Comment — needs info
+        if: ${{ steps.repro.outcome != 'success' || steps.verify.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUM: ${{ inputs.issue-number }}
+        run: |
+          gh issue edit "$NUM" --add-label "ns:needs-info" || true
+          gh issue comment "$NUM" --body "🤔 Northstar could not reproduce this bug from the description (no failing test was produced, or the described behavior already works). Please add steps to reproduce, expected vs actual behavior, and any error output." || true

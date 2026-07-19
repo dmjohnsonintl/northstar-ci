@@ -27,6 +27,16 @@ to be safe to run inside another repo's CI, and safe to have its source public.
   (`actions/checkout`, `actions/setup-node`) at major-version tags. SHA-pinning is on
   the roadmap for stricter supply-chain guarantees.
 
+## Bug-intake & untrusted issue text
+The bug-intake door reads **attacker-controlled** issue titles/bodies. Two protections:
+- **No command injection.** Issue text reaches a shell only through `env:` vars
+  (never interpolated into a `run:` command), so it can't inject shell commands.
+- **Prompt-injection is contained by human review.** A malicious issue could try to
+  steer the AI reproduce/fix engine. The engine runs on an **ephemeral runner** with a
+  workflow-scoped token, and its only output is a **pull request that never
+  auto-merges** — a human reviews every change before it lands. Do not enable
+  auto-merge for Northstar branches.
+
 ## Reporting a vulnerability
 Open a private security advisory on this repository, or contact the owner directly.
 Please do not file public issues for security reports.
