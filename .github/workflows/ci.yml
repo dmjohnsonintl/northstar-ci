@@ -1,0 +1,27 @@
+name: ci
+# Runs Northstar's OWN test suite (unit + adapter-contract conformance) on every
+# change. Python is set up so the python adapter's contract cases run for real;
+# without it they skip (see adapters/contract.test.js).
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  unit-and-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install the python contract toolchain
+        run: python -m pip install --quiet pytest coverage
+      - name: Unit + adapter-contract suite
+        run: npm test
