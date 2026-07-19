@@ -27,6 +27,13 @@ to be safe to run inside another repo's CI, and safe to have its source public.
   (`actions/checkout`, `actions/setup-node`) at major-version tags. SHA-pinning is on
   the roadmap for stricter supply-chain guarantees.
 
+## Secret-scan is a hard block (no agent)
+The pipeline runs **gitleaks** first (config-toggle `secret-scan`, on by default). A
+finding **fails the run before the test suite executes** and **no fix-agent is
+invoked** — a leaked credential is a human/security matter, not something to
+auto-"fix." Because the fix job keys off a *test-suite* failure and the suite step
+never runs when the scan blocks, an agent can never touch a repo that just leaked.
+
 ## Bug-intake & untrusted issue text
 The bug-intake door reads **attacker-controlled** issue titles/bodies. Two protections:
 - **No command injection.** Issue text reaches a shell only through `env:` vars

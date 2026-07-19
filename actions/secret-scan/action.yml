@@ -1,0 +1,51 @@
+name: 'Northstar secret-scan'
+description: 'Hard-block the pipeline on committed secrets (gitleaks). A leak fails the run and NO fix-agent is invoked — a leak is a human/security matter, not a code-fix.'
+inputs:
+  workdir:
+    description: 'Directory to scan'
+    default: '.'
+  gitleaks-version:
+    description: 'Pinned gitleaks release to install'
+    default: '8.18.4'
+  config:
+    description: 'Optional gitleaks config path (empty = built-in rules)'
+    default: ''
+runs:
+  using: 'composite'
+  steps:
+    - name: Install gitleaks (pinned)
+      shell: bash
+      env:
+        VERSION: ${{ inputs.gitleaks-version }}
+      run: |
+        set -euo pipefail
+        if command -v gitleaks >/dev/null 2>&1; then
+          echo "gitleaks already present: $(gitleaks version)"; exit 0
+        fi
+        url="https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz"
+        echo "downloading $url"
+        curl -sSfL "$url" -o /tmp/gitleaks.tgz
+        tar -xzf /tmp/gitleaks.tgz -C /tmp gitleaks
+        sudo mv /tmp/gitleaks /usr/local/bin/gitleaks
+        gitleaks version
+
+    - name: Scan (hard block on findings)
+      shell: bash
+      working-directory: ${{ inputs.workdir }}
+      env:
+        CONFIG: ${{ inputs.config }}
+      run: |
+        set -uo pipefail
+        # --no-git scans the working tree as-is (catches secrets even if untracked).
+        # --redact keeps the secret value out of logs. --exit-code 1 => nonzero on any finding.
+        args=(detect --source . --no-git --no-banner --redact --exit-code 1)
+        [ -n "$CONFIG" ] && args+=(--config "$CONFIG")
+        echo "::group::gitleaks detect"
+        gitleaks "${args[@]}"; rc=$?
+        echo "::endgroup::"
+        if [ "$rc" -eq 0 ]; then
+          echo "[northstar] secret-scan: clean ✅"
+        else
+          echo "::error::secret-scan found potential secret(s) — HARD BLOCK. No fix-agent is invoked. Remove/rotate the secret and scrub it from history before re-running."
+          exit 1
+        fi

@@ -40,6 +40,10 @@ on:
         description: 'Fix-agent engine: stub (default, no LLM) | claude-code'
         type: string
         default: 'stub'
+      secret-scan:
+        description: 'Run the gitleaks secret-scan hard-block before anything else'
+        type: boolean
+        default: true
 
 # Least privilege: only what promote-regression needs on the default branch.
 permissions:
@@ -62,6 +66,14 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+      # Secret-scan FIRST: a leak is a hard block (fails the job here, before the
+      # suite runs) and NO fix-agent is invoked — the fix job keys off suite
+      # failure, and the suite step never runs when this fails.
+      - name: secret-scan (hard block; no agent)
+        if: ${{ inputs.secret-scan }}
+        uses: dmjohnsonintl/northstar-ci/actions/secret-scan@v0
+        with:
+          workdir: ${{ inputs.workdir }}
       # Node is always set up — Northstar's own CLIs (gate, normalize) run on it,
       # regardless of the project's language.
       - uses: actions/setup-node@v5
