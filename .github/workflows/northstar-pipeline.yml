@@ -62,6 +62,9 @@ jobs:
     # author handles those).
     outputs:
       suite-failed: ${{ steps.suite.outcome == 'failure' }}
+      # Touched zones (space-separated) → the fix job claims the primary one so
+      # concurrent fixes on the same zone can't collide (coordination substrate).
+      zones: ${{ steps.detect.outputs.zones }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -157,7 +160,36 @@ jobs:
         env:
           INSTALL_CMD: ${{ inputs.install-cmd }}
         run: eval "$INSTALL_CMD"
+
+      # route-failure: pick the primary failing zone.
+      - name: Resolve the primary zone
+        id: zone
+        env:
+          ZONES: ${{ needs.gate.outputs.zones }}
+        run: |
+          Z="${ZONES%% *}"          # first touched zone
+          [ -z "$Z" ] && Z="repo"   # fallback when nothing mapped
+          echo "name=$Z" >> "$GITHUB_OUTPUT"
+          echo "[northstar] routing fix to zone: $Z"
+
+      # Acquire an ENFORCEMENT CLAIM on the zone before fixing. Atomic: if another
+      # run already holds ns/claim/<zone>, this returns acquired=false and we
+      # queue (skip) instead of colliding. Released unconditionally at the end.
+      - name: route-failure — acquire zone claim
+        id: claim
+        uses: dmjohnsonintl/northstar-ci/actions/claim@v0
+        with:
+          mode: acquire
+          zone: ${{ steps.zone.outputs.name }}
+          role: fixer
+          ttl-seconds: '3600'
+
+      - name: Zone already claimed → queue (no collision)
+        if: ${{ steps.claim.outputs.acquired != 'true' }}
+        run: echo "::notice::zone '${{ steps.zone.outputs.name }}' is held by ${{ steps.claim.outputs.holder }} — another run is fixing it; queuing this one."
+
       - name: Capture the failing-test log
+        if: ${{ steps.claim.outputs.acquired == 'true' }}
         continue-on-error: true
         uses: dmjohnsonintl/northstar-ci/actions/run-suite@v0
         with:
@@ -165,6 +197,7 @@ jobs:
           adapter: ${{ inputs.adapter }}
           test-cmd: ${{ inputs.test-cmd }}
       - name: fix-agent
+        if: ${{ steps.claim.outputs.acquired == 'true' }}
         uses: dmjohnsonintl/northstar-ci/actions/fix-agent@v0
         with:
           workdir: ${{ inputs.workdir }}
@@ -173,3 +206,12 @@ jobs:
           engine: ${{ inputs.engine }}
           failing-log: ${{ inputs.workdir }}/artifacts/test.log
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      # Mortality: release the claim whether the fix went green, escalated, or
+      # errored — so the zone is freed immediately (GC is only the crash backstop).
+      - name: Release the zone claim
+        if: ${{ always() && steps.claim.outputs.acquired == 'true' }}
+        uses: dmjohnsonintl/northstar-ci/actions/claim@v0
+        with:
+          mode: release
+          zone: ${{ steps.zone.outputs.name }}
