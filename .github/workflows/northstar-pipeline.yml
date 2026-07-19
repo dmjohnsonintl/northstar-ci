@@ -16,6 +16,14 @@ on:
         description: 'Command to install project deps (e.g. "npm ci" or "pip install -r requirements.txt")'
         type: string
         default: 'npm ci'
+      test-cmd:
+        description: 'Override the adapter default test command (empty = adapter default)'
+        type: string
+        default: ''
+      coverage-cmd:
+        description: 'Override the adapter default coverage command (empty = adapter default)'
+        type: string
+        default: ''
       coverage-min:
         type: string
         default: '80'
@@ -85,6 +93,7 @@ jobs:
         with:
           workdir: ${{ inputs.workdir }}
           adapter: ${{ inputs.adapter }}
+          test-cmd: ${{ inputs.test-cmd }}
       # Coverage + promotion only make sense when the suite passed.
       - name: coverage-gate
         if: ${{ steps.suite.outcome == 'success' }}
@@ -93,6 +102,7 @@ jobs:
         with:
           workdir: ${{ inputs.workdir }}
           adapter: ${{ inputs.adapter }}
+          coverage-cmd: ${{ inputs.coverage-cmd }}
           min: ${{ inputs.coverage-min }}
           mode: ${{ inputs.coverage-mode }}
       - name: promote-regression (default branch only)
@@ -141,11 +151,13 @@ jobs:
         with:
           workdir: ${{ inputs.workdir }}
           adapter: ${{ inputs.adapter }}
+          test-cmd: ${{ inputs.test-cmd }}
       - name: fix-agent
         uses: dmjohnsonintl/northstar-ci/actions/fix-agent@v0
         with:
           workdir: ${{ inputs.workdir }}
           adapter: ${{ inputs.adapter }}
+          test-cmd: ${{ inputs.test-cmd }}
           engine: ${{ inputs.engine }}
           failing-log: ${{ inputs.workdir }}/artifacts/test.log
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
