@@ -1,24 +1,29 @@
 # Northstar status — dmjohnsonintl/northstar-ci
 
-_Window: last 14 days · generated 2026-07-19T02:09:04Z_
+_Window: last 14 days · generated 2026-07-19T14:35:17Z_
 
 ## Pipeline health
 
-- **Runs:** 25 (23 completed)
-- **Green rate:** 39.1% ████░░░░░░ (9 passed / 14 failed)
-- **Median run time:** 19s
+- **Runs:** 45 (43 completed)
+- **Green rate:** 62.8% ██████░░░░ (27 passed / 16 failed)
+- **Median run time:** 18s
 
 | Workflow | Runs | Passed | Failed |
 |---|--:|--:|--:|
 | .github/workflows/min.yml | 3 | 0 | 3 |
+| Northstar GC | 5 | 5 | 0 |
 | aidemo | 4 | 0 | 4 |
 | bugintakedemo | 1 | 1 | 0 |
-| ci | 2 | 2 | 0 |
-| fixdemo | 4 | 0 | 4 |
-| metricsdemo | 1 | 0 | 0 |
+| ci | 9 | 9 | 0 |
+| fixdemo | 5 | 0 | 5 |
+| flakydemo | 1 | 1 | 0 |
+| metricsdemo | 2 | 1 | 0 |
 | plain | 2 | 2 | 0 |
 | pydemo | 1 | 1 | 0 |
-| selftest | 7 | 3 | 3 |
+| secretscandemo | 1 | 1 | 0 |
+| selftest | 8 | 4 | 3 |
+| signaldemo | 2 | 1 | 1 |
+| substratedemo | 1 | 1 | 0 |
 
 ## Coverage trend
 
@@ -27,7 +32,7 @@ _Window: last 14 days · generated 2026-07-19T02:09:04Z_
 
 ## Agent / model health
 
-- **Fix success rate:** 100% (4 fixed → PR, 0 escalated to `ns:needs-human`)
+- **Fix success rate:** 100% (5 fixed → PR, 0 escalated to `ns:needs-human`)
 - **Human acceptance:** 0%
 - **Bugs reproduced:** 1 (`ns:needs-info`: 0)
 - **Tests promoted to regression:** —
