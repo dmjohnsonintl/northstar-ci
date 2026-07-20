@@ -1,5 +1,9 @@
 node_modules/
 .DS_Store
 coverage/
+# The e2edemo fixture has NO unit tests, so its coverage-summary.json is a
+# committed static file the unit gate reads — re-include it past the rule above.
+!examples/e2edemo/coverage/
+!examples/e2edemo/coverage/**
 artifacts/
 /tmp-*
