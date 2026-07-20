@@ -40,11 +40,20 @@ runs:
           # promote in the gate job pushes just before this E2E promote in the
           # system job (which checked out the pre-push SHA). A plain push would
           # be non-fast-forward and silently drop the promotion.
+          pushed=false
           for attempt in 1 2 3; do
-            git pull --rebase --autostash 2>/dev/null || true
-            if git push; then break; fi
-            echo "push attempt $attempt failed (concurrent update?) — retrying"
+            # Rebase our commit onto the moved branch; abort a conflicted rebase
+            # so the next attempt starts clean (stderr is visible for diagnosis).
+            git pull --rebase --autostash || { git rebase --abort 2>/dev/null || true; }
+            if git push; then pushed=true; break; fi
+            echo "::warning::push attempt $attempt failed — retrying after rebase"
           done
+          # Fail LOUDLY if the promotion never landed: a silent exit 0 here would
+          # report a green job while dropping the promotion.
+          if [ "$pushed" != true ]; then
+            echo "::error::promotion committed locally but push failed after 3 attempts" >&2
+            exit 1
+          fi
         else
           echo "nothing to commit"
         fi
