@@ -44,6 +44,14 @@ on:
         description: 'Run the gitleaks secret-scan hard-block before anything else'
         type: boolean
         default: true
+      system-tests:
+        description: 'Run the Playwright/E2E system-test layer after the unit gate passes'
+        type: boolean
+        default: false
+      system-test-cmd:
+        description: 'Command to run the system/E2E suite'
+        type: string
+        default: 'npx playwright test'
 
 # Least privilege: only what promote-regression needs on the default branch.
 permissions:
@@ -256,6 +264,144 @@ jobs:
 
       # Mortality: release the claim whether the fix went green, escalated, or
       # errored — so the zone is freed immediately (GC is only the crash backstop).
+      - name: Release the zone claim
+        if: ${{ always() && steps.claim.outputs.acquired == 'true' }}
+        uses: dmjohnsonintl/northstar-ci/actions/claim@v0
+        with:
+          mode: release
+          zone: ${{ steps.zone.outputs.name }}
+
+  # Opt-in Playwright/E2E system-test layer. Runs ONLY when the unit gate passed
+  # (test-pyramid ordering) AND the consumer opted in. Reuses run-suite's
+  # retry-once flake quarantine (browser tests flake more).
+  system:
+    needs: gate
+    if: ${{ always() && needs.gate.result == 'success' && inputs.system-tests }}
+    runs-on: ubuntu-latest
+    outputs:
+      suite-failed: ${{ steps.suite.outcome == 'failure' }}
+      zones: ${{ needs.gate.outputs.zones }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ inputs.node-version }}
+      - if: ${{ inputs.adapter == 'python' }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+      - name: Install project deps
+        working-directory: ${{ inputs.workdir }}
+        env:
+          INSTALL_CMD: ${{ inputs.install-cmd }}
+        run: eval "$INSTALL_CMD"
+      - name: Install Playwright browsers
+        working-directory: ${{ inputs.workdir }}
+        run: npx playwright install --with-deps chromium
+      - name: run E2E suite (retry-once flake quarantine)
+        id: suite
+        continue-on-error: true
+        uses: dmjohnsonintl/northstar-ci/actions/run-suite@v0
+        with:
+          workdir: ${{ inputs.workdir }}
+          adapter: ${{ inputs.adapter }}
+          test-cmd: ${{ inputs.system-test-cmd }}
+          retries: '1'
+      - name: signal — flaky (system)
+        if: ${{ steps.suite.outputs.flaky == 'true' }}
+        uses: dmjohnsonintl/northstar-ci/actions/signal@v0
+        with:
+          type: flaky
+          zone: ${{ needs.gate.outputs.zones }}
+          pr-number: ${{ github.event.pull_request.number }}
+          ttl-seconds: '86400'
+          role: system
+      # Promote green E2E tests into the immutable regression suite (default
+      # branch only). No coverage ratchet — E2E produces no line coverage.
+      - name: promote E2E regression (default branch only)
+        if: ${{ steps.suite.outcome == 'success' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+        uses: dmjohnsonintl/northstar-ci/actions/promote-regression@v0
+        with:
+          workdir: ${{ inputs.workdir }}
+          staging: e2e/new
+          regression: e2e/regression
+      - name: Fail if the E2E suite failed
+        if: ${{ steps.suite.outcome == 'failure' }}
+        run: |
+          echo "::error::E2E system-test suite failed"
+          exit 1
+
+  # Layer-aware single-attempt fix for a DETERMINISTIC E2E failure (flakes were
+  # already quarantined by run-suite). Mirrors the unit `fix` job; sets
+  # layer=system. No claim collision with `fix`: a unit failure fails the gate,
+  # which skips `system`, so the two fixers never run in the same pipeline run.
+  fix-system:
+    needs: system
+    if: ${{ always() && needs.system.outputs.suite-failed == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ github.head_ref || github.ref_name }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ inputs.node-version }}
+      - if: ${{ inputs.adapter == 'python' }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+      - name: Install project deps
+        working-directory: ${{ inputs.workdir }}
+        env:
+          INSTALL_CMD: ${{ inputs.install-cmd }}
+        run: eval "$INSTALL_CMD"
+      - name: Install Playwright browsers
+        working-directory: ${{ inputs.workdir }}
+        run: npx playwright install --with-deps chromium
+      - name: Resolve the primary zone
+        id: zone
+        env:
+          ZONES: ${{ needs.system.outputs.zones }}
+        run: |
+          Z="${ZONES%% *}"
+          [ -z "$Z" ] && Z="repo"
+          echo "name=$Z" >> "$GITHUB_OUTPUT"
+          echo "[northstar] routing system fix to zone: $Z"
+      - name: route-failure — acquire zone claim
+        id: claim
+        uses: dmjohnsonintl/northstar-ci/actions/claim@v0
+        with:
+          mode: acquire
+          zone: ${{ steps.zone.outputs.name }}
+          role: fixer
+          ttl-seconds: '3600'
+      - name: Zone already claimed → queue (no collision)
+        if: ${{ steps.claim.outputs.acquired != 'true' }}
+        run: echo "::notice::zone '${{ steps.zone.outputs.name }}' is held by ${{ steps.claim.outputs.holder }} — queuing this system fix."
+      - name: Capture the failing E2E log
+        if: ${{ steps.claim.outputs.acquired == 'true' }}
+        continue-on-error: true
+        uses: dmjohnsonintl/northstar-ci/actions/run-suite@v0
+        with:
+          workdir: ${{ inputs.workdir }}
+          adapter: ${{ inputs.adapter }}
+          test-cmd: ${{ inputs.system-test-cmd }}
+          retries: '0'
+      - name: fix-agent (layer=system)
+        if: ${{ steps.claim.outputs.acquired == 'true' }}
+        uses: dmjohnsonintl/northstar-ci/actions/fix-agent@v0
+        with:
+          workdir: ${{ inputs.workdir }}
+          adapter: ${{ inputs.adapter }}
+          test-cmd: ${{ inputs.system-test-cmd }}
+          layer: system
+          engine: ${{ inputs.engine }}
+          failing-log: ${{ inputs.workdir }}/artifacts/test.log
+          pr-title: 'Northstar system-test fix'
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
       - name: Release the zone claim
         if: ${{ always() && steps.claim.outputs.acquired == 'true' }}
         uses: dmjohnsonintl/northstar-ci/actions/claim@v0
