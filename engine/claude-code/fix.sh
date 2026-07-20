@@ -10,6 +10,15 @@ set -euo pipefail
 # (NS_FIX_LOG is repo-root-relative).
 LOG_CONTENT="$(cat "${NS_FIX_LOG:?}" 2>/dev/null || echo '(no failing-test log captured)')"
 
+# Layer-aware framing (advisory). System/E2E failures fail differently from unit
+# bugs — a selector, a wait/timing issue, or a real product regression.
+LAYER="${NS_FIX_LAYER:-unit}"
+if [ "$LAYER" = "system" ]; then
+  LAYER_NOTE="These are END-TO-END / system tests (e.g. Playwright). The failure may be a broken selector, a wait/timing issue, or a genuine product regression — investigate the app behavior, not just a single function."
+else
+  LAYER_NOTE=""
+fi
+
 cd "${NS_FIX_WORKDIR:?}"
 
 # Install the CLI (idempotent).
@@ -19,9 +28,13 @@ PROMPT="The test suite in this project is failing. Here is the failing-test outp
 
 ${LOG_CONTENT}
 
+${LAYER_NOTE}
+
 Fix the SOURCE code in this directory so the tests pass. Make the minimal change.
 Do NOT weaken, skip, delete, or edit the tests to make them pass. Do NOT edit
 package.json or config files. Only change source code to fix the underlying bug."
+
+echo "[northstar] fixing at layer: $LAYER"
 
 # Headless, reproducible (--bare skips local config), auto-approve edits.
 claude -p --bare --permission-mode acceptEdits "$PROMPT" || true

@@ -12,6 +12,9 @@ inputs:
   test-cmd:
     description: 'Test command for the re-run (empty = adapter default)'
     default: ''
+  layer:
+    description: 'Which test layer this fix targets: unit | system. Advisory — passed to the engine as NS_FIX_LAYER to shape its prompt.'
+    default: 'unit'
   failing-log:
     description: 'Path to the failing-test log (repo-root-relative)'
     default: 'artifacts/test.log'
@@ -49,6 +52,7 @@ runs:
       env:
         NS_FIX_WORKDIR: ${{ inputs.workdir }}
         NS_FIX_LOG: ${{ inputs.failing-log }}
+        NS_FIX_LAYER: ${{ inputs.layer }}
       run: bash "${{ github.action_path }}/../../engine/stub/fix.sh"
 
     - name: Engine (claude-code)
@@ -57,6 +61,7 @@ runs:
       env:
         NS_FIX_WORKDIR: ${{ inputs.workdir }}
         NS_FIX_LOG: ${{ inputs.failing-log }}
+        NS_FIX_LAYER: ${{ inputs.layer }}
         ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
       run: bash "${{ github.action_path }}/../../engine/claude-code/fix.sh"
 
