@@ -1,27 +1,50 @@
 name: 'Northstar promote-regression'
-description: 'On the default branch: ratchet the coverage baseline and promote green staged tests.'
+description: 'On the default branch: promote green staged tests into the immutable regression suite, and (optionally) ratchet the coverage baseline. Parametric on the staging/regression dir pair so it serves both unit and E2E promotion.'
 inputs:
   workdir:
     description: 'Consumer project directory (relative to the repo root)'
     default: '.'
+  staging:
+    description: 'Staging dir (repo-relative to workdir) whose green tests are promoted'
+    default: 'tests/new'
+  regression:
+    description: 'Immutable regression dir (repo-relative to workdir) to promote into'
+    default: 'tests/regression'
   next-baseline:
-    description: 'Path to the proposed new baseline file (from coverage-gate), repo-root-relative'
-    required: true
+    description: 'Path to the proposed new coverage baseline (from coverage-gate), repo-root-relative. Empty = skip the coverage ratchet (e.g. E2E promotion has no coverage).'
+    default: ''
 runs:
   using: 'composite'
   steps:
     - shell: bash
       env:
         WORKDIR: ${{ inputs.workdir }}
+        STAGING: ${{ inputs.staging }}
+        REGRESSION: ${{ inputs.regression }}
         NEXT_BASELINE: ${{ inputs.next-baseline }}
       run: |
         WD="${WORKDIR%/}"
-        mkdir -p "$WD/.northstar"
-        cp "$NEXT_BASELINE" "$WD/.northstar/coverage-baseline.json"
-        node "${{ github.action_path }}/../../lib/promote-cli.js" \
-          --staging "$WD/tests/new" --regression "$WD/tests/regression"
         git config user.name "northstar[bot]"
         git config user.email "northstar@users.noreply.github.com"
-        git add "$WD/.northstar/coverage-baseline.json" "$WD/tests/" || true
-        git commit -m "chore(northstar): ratchet coverage baseline + promote regression" || echo "nothing to commit"
-        git push || echo "no push (no changes / protected)"
+        # Coverage ratchet is optional: E2E promotion supplies no baseline.
+        if [ -n "$NEXT_BASELINE" ]; then
+          mkdir -p "$WD/.northstar"
+          cp "$NEXT_BASELINE" "$WD/.northstar/coverage-baseline.json"
+          git add "$WD/.northstar/coverage-baseline.json" || true
+        fi
+        node "${{ github.action_path }}/../../lib/promote-cli.js" \
+          --staging "$WD/$STAGING" --regression "$WD/$REGRESSION"
+        git add "$WD/$STAGING" "$WD/$REGRESSION" || true
+        if git commit -m "chore(northstar): promote regression ($STAGING -> $REGRESSION)${NEXT_BASELINE:+ + ratchet coverage baseline}"; then
+          # Land on top of any concurrent northstar[bot] push — e.g. the unit
+          # promote in the gate job pushes just before this E2E promote in the
+          # system job (which checked out the pre-push SHA). A plain push would
+          # be non-fast-forward and silently drop the promotion.
+          for attempt in 1 2 3; do
+            git pull --rebase --autostash 2>/dev/null || true
+            if git push; then break; fi
+            echo "push attempt $attempt failed (concurrent update?) — retrying"
+          done
+        else
+          echo "nothing to commit"
+        fi
