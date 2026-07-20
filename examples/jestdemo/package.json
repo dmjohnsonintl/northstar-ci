@@ -1,0 +1,11 @@
+{
+  "name": "ns-jestdemo",
+  "private": true,
+  "scripts": {
+    "test:ci": "jest",
+    "test:coverage": "jest --coverage"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
+  }
+}
