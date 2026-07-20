@@ -1,0 +1,11 @@
+{
+  "name": "ns-e2edemo",
+  "private": true,
+  "scripts": {
+    "test:ci": "echo 'no unit tests in the e2e demo' && exit 0",
+    "test:coverage": "echo 'no coverage in the e2e demo' && exit 0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.47.0"
+  }
+}

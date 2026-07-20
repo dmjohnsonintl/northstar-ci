@@ -1,0 +1,19 @@
+name: e2edemo
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  demo:
+    uses: ./.github/workflows/northstar-pipeline.yml
+    with:
+      workdir: examples/e2edemo
+      adapter: js-ts
+      install-cmd: npm ci
+      zones-json: '[{"zone":"e2e","glob":"tests/**"}]'
+      coverage-min: '0'
+      coverage-mode: 'report'
+      engine: 'stub'
+      secret-scan: false
+      system-tests: true
