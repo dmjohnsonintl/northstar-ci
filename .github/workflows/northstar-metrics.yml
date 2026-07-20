@@ -76,6 +76,18 @@ jobs:
             '{fixPrsOpened:$opened, escalations:$escalations, reproduced:$reproduced, needsInfo:$needsInfo, fixPrsMerged:$merged, fixPrsClosedUnmerged:$closed}' \
             > agent.json
 
+          # Coordination health + regression growth, from substrate traces.
+          CLAIMS=$(git ls-remote --heads origin 'ns/claim/*' | grep -c . || true)
+          sig_count() { gh pr list --repo "$REPO" --state all --limit 200 --label "ns:signal/$1" --json number -q 'length'; }
+          FLAKY=$(sig_count flaky); COVGAP=$(sig_count coverage-gap); RECLAIM=$(sig_count reclaimed)
+          PROMOS=$(git log --grep='promote regression' --oneline | grep -c . || true)
+          jq -n \
+            --argjson claims "${CLAIMS:-0}" --argjson flaky "${FLAKY:-0}" \
+            --argjson covgap "${COVGAP:-0}" --argjson reclaim "${RECLAIM:-0}" \
+            --argjson promos "${PROMOS:-0}" \
+            '{activeClaims:$claims, signals:{flaky:$flaky, coverageGap:$covgap, reclaimed:$reclaim}, promotions:$promos}' \
+            > extra.json
+
       - name: Render dashboard + digest
         env:
           REPO: ${{ inputs.repo || github.repository }}
@@ -84,10 +96,10 @@ jobs:
           set -euo pipefail
           NOW="$(date -u +%FT%TZ)"
           mkdir -p docs
-          node lib/metrics-cli.js --runs runs.json --coverage coverage.json --agent agent.json \
+          node lib/metrics-cli.js --runs runs.json --coverage coverage.json --agent agent.json --extra extra.json \
             --now "$NOW" --since "$SINCE" --repo "$REPO" --mode dashboard \
             | tee -a "$GITHUB_STEP_SUMMARY" > docs/northstar-status.md
-          node lib/metrics-cli.js --runs runs.json --coverage coverage.json --agent agent.json \
+          node lib/metrics-cli.js --runs runs.json --coverage coverage.json --agent agent.json --extra extra.json \
             --now "$NOW" --since "$SINCE" --repo "$REPO" --mode digest > digest.txt
           echo "digest: $(cat digest.txt)"
 
