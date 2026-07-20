@@ -1,0 +1,17 @@
+name: vitedemo
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  demo:
+    uses: ./.github/workflows/northstar-pipeline.yml
+    with:
+      workdir: examples/vitedemo
+      adapter: js-ts
+      install-cmd: npm ci
+      zones-json: '[{"zone":"src","glob":"src/**"}]'
+      coverage-min: '0'
+      coverage-mode: 'report'
+      engine: 'stub'

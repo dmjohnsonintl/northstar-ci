@@ -1,0 +1,13 @@
+{
+  "name": "ns-vitedemo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:ci": "vitest run",
+    "test:coverage": "vitest run --coverage"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.0",
+    "@vitest/coverage-v8": "^2.1.0"
+  }
+}
