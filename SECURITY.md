@@ -47,3 +47,11 @@ The bug-intake door reads **attacker-controlled** issue titles/bodies. Two prote
 ## Reporting a vulnerability
 Open a private security advisory on this repository, or contact the owner directly.
 Please do not file public issues for security reports.
+
+## System-test layer (Playwright)
+
+The opt-in system-test layer runs your end-to-end suite in CI — this executes
+consumer application code, same as the unit suite. Deterministic E2E failures may
+route to the fix-agent, which, like all Northstar fixes, only ever opens a
+**human-review PR and never auto-merges**. Flaky E2E failures are quarantined and
+never trigger an automated fix.
