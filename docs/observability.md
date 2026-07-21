@@ -50,3 +50,15 @@ The logic is a pure, unit-tested read-model (`lib/metrics.js`); the workflow is 
 thin shell that feeds it `gh run list --json`. Because the aggregation takes the
 current time as an input (never `Date.now()`), the same traces always render the
 same dashboard.
+
+## Cost & the `northstar-metrics` branch
+
+Fix runs emit a per-run usage record (token/cost) that GitHub run-traces don't
+carry. Records live on a dedicated **`northstar-metrics`** orphan branch (one file
+per run under `records/`), written by the fix-agent with a rebase-retry push — this
+branch holds only metrics data and is **never merged into `main`**. The metrics
+workflow reads it (`git archive`) and renders the dashboard's **Cost** section.
+
+Runs on the `stub` engine emit honest **null-cost** records (the stub spends
+nothing), so the pipeline is provable without API spend; real dollar/token figures
+appear when a consumer sets `engine: claude-code`.

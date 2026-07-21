@@ -88,6 +88,19 @@ jobs:
             '{activeClaims:$claims, signals:{flaky:$flaky, coverageGap:$covgap, reclaimed:$reclaim}, promotions:$promos}' \
             > extra.json
 
+          # Engine cost records from the dedicated northstar-metrics branch
+          # (git archive → no worktree/index pollution). Absent branch → empty.
+          git fetch origin northstar-metrics 2>/dev/null || true
+          rm -rf .nsrec && mkdir -p .nsrec
+          if git rev-parse --verify origin/northstar-metrics >/dev/null 2>&1; then
+            git archive origin/northstar-metrics records 2>/dev/null | tar -x -C .nsrec 2>/dev/null || true
+          fi
+          if ls .nsrec/records/*.json >/dev/null 2>&1; then
+            jq -s '.' .nsrec/records/*.json > records.json
+          else
+            echo '[]' > records.json
+          fi
+
       - name: Render dashboard + digest
         env:
           REPO: ${{ inputs.repo || github.repository }}
@@ -96,10 +109,10 @@ jobs:
           set -euo pipefail
           NOW="$(date -u +%FT%TZ)"
           mkdir -p docs
-          node lib/metrics-cli.js --runs runs.json --coverage coverage.json --agent agent.json --extra extra.json \
+          node lib/metrics-cli.js --runs runs.json --coverage coverage.json --agent agent.json --extra extra.json --records records.json \
             --now "$NOW" --since "$SINCE" --repo "$REPO" --mode dashboard \
             | tee -a "$GITHUB_STEP_SUMMARY" > docs/northstar-status.md
-          node lib/metrics-cli.js --runs runs.json --coverage coverage.json --agent agent.json --extra extra.json \
+          node lib/metrics-cli.js --runs runs.json --coverage coverage.json --agent agent.json --extra extra.json --records records.json \
             --now "$NOW" --since "$SINCE" --repo "$REPO" --mode digest > digest.txt
           echo "digest: $(cat digest.txt)"
 
