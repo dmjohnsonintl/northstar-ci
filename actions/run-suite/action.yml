@@ -30,27 +30,4 @@ runs:
         NS_TEST_CMD: ${{ inputs.test-cmd }}
         RUN_SH: ${{ github.action_path }}/../../adapters/${{ inputs.adapter }}/run.sh
         RETRIES: ${{ inputs.retries }}
-      run: |
-        set -uo pipefail
-        attempt=0
-        flaky=false
-        code=0
-        while :; do
-          attempt=$((attempt + 1))
-          if bash "$RUN_SH"; then
-            # A pass on any attempt after the first means the failure was a flake.
-            [ "$attempt" -gt 1 ] && flaky=true
-            code=0
-            break
-          fi
-          code=$?
-          if [ "$attempt" -le "$RETRIES" ]; then
-            echo "::warning::suite failed on attempt $attempt — retrying once (possible flake)"
-            continue
-          fi
-          break
-        done
-        echo "flaky=$flaky" >> "$GITHUB_OUTPUT"
-        echo "attempts=$attempt" >> "$GITHUB_OUTPUT"
-        [ "$flaky" = "true" ] && echo "[northstar] suite is FLAKY (passed on retry after $((attempt - 1)) failure(s)) — quarantining, not routing to fix"
-        exit "$code"
+      run: bash "${{ github.action_path }}/retry.sh"
