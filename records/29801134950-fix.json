@@ -1,0 +1,14 @@
+{
+  "engine": "stub",
+  "costUsd": null,
+  "tokens": null,
+  "model": "stub",
+  "numTurns": null,
+  "runId": "29801134950",
+  "workflow": "fixdemo",
+  "job": "fix",
+  "layer": "unit",
+  "zone": "repo",
+  "outcome": "fixed",
+  "createdAt": "2026-07-21T04:24:23Z"
+}
