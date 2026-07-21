@@ -96,7 +96,9 @@ jobs:
             git archive origin/northstar-metrics records 2>/dev/null | tar -x -C .nsrec 2>/dev/null || true
           fi
           if ls .nsrec/records/*.json >/dev/null 2>&1; then
-            jq -s '.' .nsrec/records/*.json > records.json
+            # Guard: a single corrupt/hand-edited record must not black out the
+            # whole dashboard (this step runs under set -euo pipefail).
+            jq -s '.' .nsrec/records/*.json > records.json || echo '[]' > records.json
           else
             echo '[]' > records.json
           fi
