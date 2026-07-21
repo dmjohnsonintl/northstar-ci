@@ -15,6 +15,9 @@ inputs:
   layer:
     description: 'Which test layer this fix targets: unit | system. Advisory — passed to the engine as NS_FIX_LAYER to shape its prompt.'
     default: 'unit'
+  zone:
+    description: 'Routed zone for this fix (recorded in metrics). Empty = repo.'
+    default: ''
   failing-log:
     description: 'Path to the failing-test log (repo-root-relative)'
     default: 'artifacts/test.log'
@@ -53,6 +56,7 @@ runs:
         NS_FIX_WORKDIR: ${{ inputs.workdir }}
         NS_FIX_LOG: ${{ inputs.failing-log }}
         NS_FIX_LAYER: ${{ inputs.layer }}
+        NS_FIX_RECORD: ${{ runner.temp }}/ns-engine-record.json
       run: bash "${{ github.action_path }}/../../engine/stub/fix.sh"
 
     - name: Engine (claude-code)
@@ -63,9 +67,11 @@ runs:
         NS_FIX_LOG: ${{ inputs.failing-log }}
         NS_FIX_LAYER: ${{ inputs.layer }}
         ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
+        NS_FIX_RECORD: ${{ runner.temp }}/ns-engine-record.json
       run: bash "${{ github.action_path }}/../../engine/claude-code/fix.sh"
 
     - name: Re-run tests, then open a PR or escalate
+      id: rerun
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
@@ -85,6 +91,7 @@ runs:
                --body "Automated single-attempt fix by the '${{ inputs.engine }}' engine. **Human review required — nothing auto-merges.**"; then
             echo "pr_url=$(gh pr view "$BRANCH" --json url -q .url 2>/dev/null)" >> "$GITHUB_OUTPUT"
             echo "[northstar] green after fix → PR opened on $BRANCH"
+            echo "outcome=fixed" >> "$GITHUB_OUTPUT"
           else
             echo "::warning::Fix is green on branch $BRANCH, but PR creation failed. Enable 'Allow GitHub Actions to create and approve pull requests' (repo Settings → Actions → General → Workflow permissions), or open the PR from $BRANCH manually."
           fi
@@ -95,4 +102,61 @@ runs:
             --body "The single-attempt fix did not make the suite green. A human is needed." \
             || echo "::warning::could not create the ns:needs-human issue (check permissions)"
           echo "[northstar] still red after one attempt → escalated to a human"
+          echo "outcome=escalated" >> "$GITHUB_OUTPUT"
         fi
+
+    - name: Persist metrics record (loud but never fails the fix)
+      if: ${{ always() }}
+      shell: bash
+      env:
+        ENGINE: ${{ inputs.engine }}
+        LAYER: ${{ inputs.layer }}
+        ZONE: ${{ inputs.zone }}
+        OUTCOME: ${{ steps.rerun.outputs.outcome }}
+        RUN_ID: ${{ github.run_id }}
+        JOB: ${{ github.job }}
+        WORKFLOW: ${{ github.workflow }}
+        BLOB: ${{ runner.temp }}/ns-engine-record.json
+        WT: ${{ runner.temp }}/ns-metrics-wt
+      run: |
+        set -uo pipefail
+        # Fall back to a null-cost blob if the engine didn't write one.
+        [ -f "$BLOB" ] || printf '{"engine":"%s","costUsd":null,"tokens":null,"model":null,"numTurns":null}' "$ENGINE" > "$BLOB"
+        CREATED="$(date -u +%FT%TZ)"
+        REC="${BLOB%.json}-full.json"
+        jq \
+          --arg runId "$RUN_ID" --arg workflow "$WORKFLOW" --arg job "$JOB" \
+          --arg layer "${LAYER:-unit}" --arg zone "${ZONE:-repo}" \
+          --arg outcome "${OUTCOME:-unknown}" --arg createdAt "$CREATED" \
+          '. + {runId:$runId, workflow:$workflow, job:$job, layer:$layer, zone:$zone, outcome:$outcome, createdAt:$createdAt}' \
+          "$BLOB" > "$REC"
+
+        git config user.name "northstar[bot]"
+        git config user.email "northstar@users.noreply.github.com"
+        rm -rf "$WT"
+        git fetch origin northstar-metrics 2>/dev/null || true
+        if git rev-parse --verify origin/northstar-metrics >/dev/null 2>&1; then
+          # --detach avoids git's DWIM auto-branch-creation ambiguity, then make
+          # a clean local branch at the remote tip to push from.
+          git worktree add --detach "$WT" origin/northstar-metrics >/dev/null 2>&1 || { echo "::warning::metrics worktree add failed"; exit 0; }
+          git -C "$WT" switch -C northstar-metrics origin/northstar-metrics >/dev/null 2>&1 || true
+        else
+          # First record ever: create the orphan branch in the worktree.
+          git worktree add --detach "$WT" >/dev/null 2>&1 || { echo "::warning::metrics worktree add failed"; exit 0; }
+          git -C "$WT" checkout --orphan northstar-metrics >/dev/null 2>&1 || true
+          git -C "$WT" rm -rf . >/dev/null 2>&1 || true
+        fi
+        mkdir -p "$WT/records"
+        cp "$REC" "$WT/records/${RUN_ID}-${JOB}.json"
+        git -C "$WT" add "records/${RUN_ID}-${JOB}.json"
+        git -C "$WT" commit -qm "chore(metrics): record for run ${RUN_ID} (${JOB})" || echo "no record change"
+        # Rebase-retry push; LOUD (annotations) but NON-FATAL (cost never fails a fix).
+        pushed=false
+        for attempt in 1 2 3; do
+          git -C "$WT" pull --rebase --autostash origin northstar-metrics >/dev/null 2>&1 || true
+          if git -C "$WT" push origin northstar-metrics >/dev/null 2>&1; then pushed=true; break; fi
+          echo "::warning::metrics record push attempt $attempt failed — retrying"
+        done
+        [ "$pushed" = true ] || echo "::error::could not push metrics record for run ${RUN_ID} after 3 attempts (fix is unaffected)"
+        git worktree remove --force "$WT" >/dev/null 2>&1 || true
+        exit 0

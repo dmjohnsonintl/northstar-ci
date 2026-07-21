@@ -259,6 +259,7 @@ jobs:
           adapter: ${{ inputs.adapter }}
           test-cmd: ${{ inputs.test-cmd }}
           engine: ${{ inputs.engine }}
+          zone: ${{ steps.zone.outputs.name }}
           failing-log: ${{ inputs.workdir }}/artifacts/test.log
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
 
@@ -398,6 +399,7 @@ jobs:
           adapter: ${{ inputs.adapter }}
           test-cmd: ${{ inputs.system-test-cmd }}
           layer: system
+          zone: ${{ steps.zone.outputs.name }}
           engine: ${{ inputs.engine }}
           failing-log: ${{ inputs.workdir }}/artifacts/test.log
           pr-title: 'Northstar system-test fix'
