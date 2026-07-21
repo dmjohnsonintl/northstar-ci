@@ -160,6 +160,11 @@ persists the record:
 - Real-engine cost **proof** in CI (→ §12.1 nightly canary).
 - Cost **budget alerts / thresholds** (belongs with §12.1 alerting).
 - Per-run non-cost facts (latency, retries) — schema allows them; not populated now.
+- **Record retention / pruning** on the `northstar-metrics` branch — records accumulate
+  one-per-run and `costFromRecords` already windows by `createdAt`, so old records are
+  dead weight; a window-prune or periodic squash (and a bounded gather) is a named
+  follow-up that pairs with the §12.1 nightly-canary/alerting work. Until then the
+  gather is guarded so a bad record can't black out the dashboard.
 
 ## Acceptance criteria
 

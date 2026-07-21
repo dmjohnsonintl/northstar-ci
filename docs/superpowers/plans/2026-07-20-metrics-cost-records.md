@@ -441,7 +441,9 @@ function costFromRecords(records, opts = {}) {
   if (!inWindow.length) {
     return { runsTotal: 0, runsWithCost: 0, totalCostUsd: null, costPerRun: null, tokens: { input: null, output: null, cacheRead: null }, byLayer: {} };
   }
-  const isNum = (v) => Number.isFinite(Number(v)) && v !== null && v !== '';
+  // Strict (typeof-gated) like the engine's num() — never coerce a hand-edited
+  // array/boolean/whitespace on the branch into a fabricated cost.
+  const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
   const withCost = inWindow.filter((r) => isNum(r.costUsd));
   const totalCost = withCost.length ? round4(withCost.reduce((s, r) => s + Number(r.costUsd), 0)) : null;
   const tokSum = (key) => {
@@ -570,7 +572,9 @@ And add `cost` to the `model` object (after the `regression:` line):
             git archive origin/northstar-metrics records 2>/dev/null | tar -x -C .nsrec 2>/dev/null || true
           fi
           if ls .nsrec/records/*.json >/dev/null 2>&1; then
-            jq -s '.' .nsrec/records/*.json > records.json
+            # Guard: a single corrupt/hand-edited record must not black out the
+            # whole dashboard (this step runs under set -euo pipefail).
+            jq -s '.' .nsrec/records/*.json > records.json || echo '[]' > records.json
           else
             echo '[]' > records.json
           fi
