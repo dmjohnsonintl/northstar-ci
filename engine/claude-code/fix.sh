@@ -36,8 +36,17 @@ package.json or config files. Only change source code to fix the underlying bug.
 
 echo "[northstar] fixing at layer: $LAYER"
 
-# Headless, reproducible (--bare skips local config), auto-approve edits.
-claude -p --bare --permission-mode acceptEdits "$PROMPT" || true
+# Headless, auto-approve edits, JSON output so we can record token/cost. --bare
+# skips local config. Edits still apply (output format is orthogonal to tool use).
+OUT="$(claude -p --bare --output-format json --permission-mode acceptEdits "$PROMPT" 2>/dev/null || true)"
+
+# Write the usage record blob for the fix-agent to merge context onto. Defensive:
+# empty/garbage output -> null-cost blob (never blocks the fix on cost accounting).
+if [ -n "${NS_FIX_RECORD:-}" ]; then
+  LIB_DIR="$(cd "$(dirname "$0")/../../lib" && pwd)"
+  printf '%s' "$OUT" | node "$LIB_DIR/engine-usage.js" > "$NS_FIX_RECORD" 2>/dev/null \
+    || printf '{"engine":"claude-code","costUsd":null,"tokens":null,"model":null,"numTurns":null}' > "$NS_FIX_RECORD"
+fi
 
 git config user.name "northstar[bot]"
 git config user.email "northstar@users.noreply.github.com"

@@ -11,4 +11,11 @@ git config user.email "northstar@users.noreply.github.com" 2>/dev/null || true
 echo "// northstar-stub fix applied for run ${GITHUB_RUN_ID:-local}" > northstar-stub-fix.txt
 git add northstar-stub-fix.txt
 git commit -qm "fix(northstar-stub): apply known-good patch"
+
+# Honest null-cost record (the stub spends nothing) so the full record path can
+# be proven in CI without API spend.
+if [ -n "${NS_FIX_RECORD:-}" ]; then
+  printf '{"engine":"stub","costUsd":null,"tokens":null,"model":"stub","numTurns":null}' > "$NS_FIX_RECORD"
+fi
+
 echo "[northstar] stub engine committed a fix"
