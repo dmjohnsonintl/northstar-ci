@@ -93,7 +93,9 @@ Expected: FAIL — `Cannot find module './engine-usage'`.
 // (cost is observability — never fabricate it).
 
 function num(v) {
-  return Number.isFinite(Number(v)) && v !== null && v !== '' ? Number(v) : null;
+  // Only accept real numbers — never coerce arrays/booleans/whitespace strings
+  // into a fabricated cost (Number([5])===5, Number(true)===1, Number('  ')===0).
+  return typeof v === 'number' && Number.isFinite(v) ? v : null;
 }
 
 function parseClaudeUsage(envelope) {
@@ -150,9 +152,12 @@ OUT="$(claude -p --bare --output-format json --permission-mode acceptEdits "$PRO
 # Write the usage record blob for the fix-agent to merge context onto. Defensive:
 # empty/garbage output -> null-cost blob (never blocks the fix on cost accounting).
 if [ -n "${NS_FIX_RECORD:-}" ]; then
-  LIB_DIR="$(cd "$(dirname "$0")/../../lib" && pwd)"
-  printf '%s' "$OUT" | node "$LIB_DIR/engine-usage.js" > "$NS_FIX_RECORD" 2>/dev/null \
-    || printf '{"engine":"claude-code","costUsd":null,"tokens":null,"model":null,"numTurns":null}' > "$NS_FIX_RECORD"
+  # Guard the cd so a resolution failure can't abort the script under `set -e`
+  # BEFORE the commit block below — the fix must never be blocked by cost accounting.
+  LIB_DIR="$(cd "$(dirname "$0")/../../lib" 2>/dev/null && pwd)" || LIB_DIR=""
+  if [ -n "$LIB_DIR" ] && printf '%s' "$OUT" | node "$LIB_DIR/engine-usage.js" > "$NS_FIX_RECORD" 2>/dev/null; then :; else
+    printf '{"engine":"claude-code","costUsd":null,"tokens":null,"model":null,"numTurns":null}' > "$NS_FIX_RECORD"
+  fi
 fi
 ```
 
