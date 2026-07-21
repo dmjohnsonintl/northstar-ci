@@ -1,30 +1,33 @@
 # Northstar status — dmjohnsonintl/northstar-ci
 
-_Window: last 14 days · generated 2026-07-20T15:22:23Z_
+_Window: last 14 days · generated 2026-07-21T04:25:35Z_
 
 ## Pipeline health
 
-- **Runs:** 63 (61 completed)
-- **Green rate:** 73.8% ███████░░░ (45 passed / 16 failed)
+- **Runs:** 80 (77 completed)
+- **Green rate:** 76.6% ████████░░ (59 passed / 18 failed)
 - **Median run time:** 17s
-- **CI time (window):** 20 min
+- **CI time (window):** 26 min
 
 | Workflow | Runs | Passed | Failed |
 |---|--:|--:|--:|
 | .github/workflows/min.yml | 3 | 0 | 3 |
-| Northstar GC | 19 | 19 | 0 |
+| Northstar GC | 26 | 26 | 0 |
 | aidemo | 4 | 0 | 4 |
 | bugintakedemo | 1 | 1 | 0 |
-| ci | 10 | 10 | 0 |
-| fixdemo | 5 | 0 | 5 |
+| ci | 14 | 13 | 0 |
+| e2edemo | 1 | 1 | 0 |
+| fixdemo | 7 | 0 | 7 |
 | flakydemo | 1 | 1 | 0 |
-| metricsdemo | 5 | 4 | 0 |
+| jestdemo | 1 | 1 | 0 |
+| metricsdemo | 6 | 5 | 0 |
 | plain | 2 | 2 | 0 |
 | pydemo | 1 | 1 | 0 |
 | secretscandemo | 1 | 1 | 0 |
 | selftest | 8 | 4 | 3 |
 | signaldemo | 2 | 1 | 1 |
 | substratedemo | 1 | 1 | 0 |
+| vitedemo | 1 | 1 | 0 |
 
 ## Coverage trend
 
@@ -33,7 +36,7 @@ _Window: last 14 days · generated 2026-07-20T15:22:23Z_
 
 ## Agent / model health
 
-- **Fix success rate:** 100% (5 fixed → PR, 0 escalated to `ns:needs-human`)
+- **Fix success rate:** 100% (6 fixed → PR, 0 escalated to `ns:needs-human`)
 - **Human acceptance:** 0%
 - **Bugs reproduced:** 1 (`ns:needs-info`: 0)
 - **Tests promoted to regression:** —
@@ -45,9 +48,12 @@ _Window: last 14 days · generated 2026-07-20T15:22:23Z_
 
 ## Regression growth
 
-- **Promotions (window):** 1 — blessed tests added to the permanent suite
+- **Promotions (window):** 5 — blessed tests added to the permanent suite
 
-## Not yet wired
+## Cost
 
-- **Cost (tokens per run/role)** requires engine token instrumentation — shown as `—` above rather than a fabricated zero. CI time, coordination health, and regression growth are now derived from traces.
+- **Total (window):** — across 0/1 fix runs with cost data
+- **Per fix run:** —
+- **Tokens:** in — · out — · cache-read —
+- **By layer:** unit — (1 runs)
 
