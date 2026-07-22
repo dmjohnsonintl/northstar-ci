@@ -1,18 +1,18 @@
 # Northstar status — dmjohnsonintl/northstar-ci
 
-_Window: last 14 days · generated 2026-07-21T15:18:45Z_
+_Window: last 14 days · generated 2026-07-22T15:17:54Z_
 
 ## Pipeline health
 
-- **Runs:** 85 (82 completed)
-- **Green rate:** 78% ████████░░ (64 passed / 18 failed)
+- **Runs:** 98 (95 completed)
+- **Green rate:** 81.1% ████████░░ (77 passed / 18 failed)
 - **Median run time:** 17s
-- **CI time (window):** 28 min
+- **CI time (window):** 31 min
 
 | Workflow | Runs | Passed | Failed |
 |---|--:|--:|--:|
 | .github/workflows/min.yml | 3 | 0 | 3 |
-| Northstar GC | 30 | 30 | 0 |
+| Northstar GC | 42 | 42 | 0 |
 | aidemo | 4 | 0 | 4 |
 | bugintakedemo | 1 | 1 | 0 |
 | ci | 14 | 13 | 0 |
@@ -20,7 +20,7 @@ _Window: last 14 days · generated 2026-07-21T15:18:45Z_
 | fixdemo | 7 | 0 | 7 |
 | flakydemo | 1 | 1 | 0 |
 | jestdemo | 1 | 1 | 0 |
-| metricsdemo | 7 | 6 | 0 |
+| metricsdemo | 8 | 7 | 0 |
 | plain | 2 | 2 | 0 |
 | pydemo | 1 | 1 | 0 |
 | secretscandemo | 1 | 1 | 0 |
