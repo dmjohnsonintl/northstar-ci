@@ -62,3 +62,77 @@ workflow reads it (`git archive`) and renders the dashboard's **Cost** section.
 Runs on the `stub` engine emit honest **null-cost** records (the stub spends
 nothing), so the pipeline is provable without API spend; real dollar/token figures
 appear when a consumer sets `engine: claude-code`.
+
+## Canary (real-engine drift detection)
+
+Because the default pipeline runs on the deterministic `stub` engine, it can prove
+its own logic but not that the real model/tool integration still works day to day.
+The **canary** closes that gap: a nightly run of a small, deliberately-broken
+fixture (`examples/aidemo`) through the real `claude-code` engine, asserting the
+agent still fixes it end-to-end.
+
+- **`northstar-canary.yml`** (reusable workflow) — runs the fixture through the
+  full fix/assert/cleanup cycle and emits a normal `gh run` conclusion (green/red),
+  so it shows up in the same run-history traces the metrics dashboard already reads.
+- **`canarydemo.yml`** (scheduled caller) — the nightly trigger. Requires
+  `contents: write` + `pull-requests: write` (to open/manage the fix PR and clean up
+  its branch) and the `ANTHROPIC_API_KEY` secret (the only place in the pipeline
+  that spends real tokens).
+- **Expected cost**: ~$0.02–0.10 per run, i.e. roughly **$10–35/year** for a nightly
+  schedule — small enough to run indefinitely as a drift tripwire.
+
+Add it with:
+
+```yaml
+# Nightly canary (real-engine drift detection)
+name: Northstar canary
+on:
+  schedule: [{ cron: '0 7 * * *' }]
+  workflow_dispatch:
+permissions: { contents: write, pull-requests: write }
+jobs:
+  canary:
+    uses: dmjohnsonintl/northstar-ci/.github/workflows/northstar-canary.yml@v0
+    with: { fixture-dir: examples/aidemo }
+    secrets: inherit   # ANTHROPIC_API_KEY
+```
+
+The metrics dashboard folds the canary's latest conclusion into its Agent Health
+section (🟢/🔴), and the canary's cost record flows into the same per-run usage
+stream as ordinary fix runs.
+
+## Alerting (§12.1)
+
+The metrics workflow evaluates four alert rules on every run, using the same
+traces it already gathers (no extra API calls beyond enumerating claim refs):
+
+| Rule | Fires when | Default threshold | Severity |
+|---|---|---|---|
+| `escalation-rate` | escalations / opened fix PRs exceeds the rate | `0.5` | trend |
+| `coverage-trend` | coverage delta from the previous point is negative | delta-min `0` | trend |
+| `claim-starvation` | any active coordination claim is older than the threshold | `21600`s (6h) | page |
+| `canary` | the latest canary run concluded red | — | page |
+
+Each rule has three states — `firing`, `clear`, and *omitted* (no data, never a
+fabricated clear) — evaluated the same way in the always-on unit tests
+(`lib/alerts.test.js`) as in CI.
+
+**Issue lifecycle** — one deduped issue per rule, matched by title against **open**
+issues labeled `ns:alert`:
+- `firing` + no open issue → **create**, labeled `ns:alert` + `ns:alert/page` or
+  `ns:alert/trend`.
+- `firing` + an open issue already exists → **comment** "Still firing".
+- `clear` + an open issue exists → **comment** "Recovered", then **close** it.
+- `clear` + no open issue → nothing (no-op).
+
+Labels are created idempotently (`gh label create ... --force`) as a backstop
+before the first issue is ever opened, so a missing label can't fail the run.
+
+**Render-only opt-out** — set `alerts: false` on the caller to still evaluate the
+rules and render the `§12.1 Alerts` section to the job summary, without writing,
+commenting on, or closing any issue. Useful for dry-running new thresholds.
+
+Tune the rules via the caller's `with:` block: `escalation-rate`,
+`coverage-delta-min`, `claim-age-seconds`, `canary-workflow` (must match the
+canary's workflow `name:` — default `'Northstar canary'`), and `alert-label`
+(default `'ns:alert'`).

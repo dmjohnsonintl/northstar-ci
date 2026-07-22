@@ -29,6 +29,25 @@ on:
       digest-issue-title:
         type: string
         default: 'Northstar daily digest'
+      alerts:
+        description: 'Write deduped alert issues (false = evaluate + render only)'
+        type: boolean
+        default: true
+      escalation-rate:
+        type: number
+        default: 0.5
+      coverage-delta-min:
+        type: number
+        default: 0
+      claim-age-seconds:
+        type: number
+        default: 21600
+      canary-workflow:
+        type: string
+        default: 'Northstar canary'
+      alert-label:
+        type: string
+        default: 'ns:alert'
 
 permissions:
   contents: write   # commit the refreshed dashboard
@@ -77,7 +96,22 @@ jobs:
             > agent.json
 
           # Coordination health + regression growth, from substrate traces.
-          CLAIMS=$(git ls-remote --heads origin 'ns/claim/*' | grep -c . || true)
+          # Enumerate active claim refs AND extract each claim body so
+          # ages are available to the starvation alert. An unreadable claim is skipped.
+          CLAIM_REFS=$(git ls-remote --heads origin 'ns/claim/*' | awk '{print $2}' | sed 's#refs/heads/##')
+          CLAIMS=$(printf '%s\n' "$CLAIM_REFS" | grep -c . || true)
+          rm -rf .nsclaims && mkdir -p .nsclaims
+          for ref in $CLAIM_REFS; do
+            zone="${ref#ns/claim/}"
+            git fetch origin "$ref" 2>/dev/null || continue
+            git archive FETCH_HEAD ".northstar/claims/${zone}.json" 2>/dev/null \
+              | tar -x -C .nsclaims 2>/dev/null || true
+          done
+          if ls .nsclaims/.northstar/claims/*.json >/dev/null 2>&1; then
+            jq -s '.' .nsclaims/.northstar/claims/*.json > claims.json || echo '[]' > claims.json
+          else
+            echo '[]' > claims.json
+          fi
           sig_count() { gh pr list --repo "$REPO" --state all --limit 200 --label "ns:signal/$1" --json number -q 'length'; }
           FLAKY=$(sig_count flaky); COVGAP=$(sig_count coverage-gap); RECLAIM=$(sig_count reclaimed)
           PROMOS=$(git log --grep='promote regression' --oneline | grep -c . || true)
@@ -107,15 +141,16 @@ jobs:
         env:
           REPO: ${{ inputs.repo || github.repository }}
           SINCE: ${{ inputs.since-days }}
+          CANARY_WORKFLOW: ${{ inputs.canary-workflow }}
         run: |
           set -euo pipefail
           NOW="$(date -u +%FT%TZ)"
           mkdir -p docs
           node lib/metrics-cli.js --runs runs.json --coverage coverage.json --agent agent.json --extra extra.json --records records.json \
-            --now "$NOW" --since "$SINCE" --repo "$REPO" --mode dashboard \
+            --now "$NOW" --since "$SINCE" --repo "$REPO" --mode dashboard --canary-workflow "$CANARY_WORKFLOW" \
             | tee -a "$GITHUB_STEP_SUMMARY" > docs/northstar-status.md
           node lib/metrics-cli.js --runs runs.json --coverage coverage.json --agent agent.json --extra extra.json --records records.json \
-            --now "$NOW" --since "$SINCE" --repo "$REPO" --mode digest > digest.txt
+            --now "$NOW" --since "$SINCE" --repo "$REPO" --mode digest --canary-workflow "$CANARY_WORKFLOW" > digest.txt
           echo "digest: $(cat digest.txt)"
 
       - name: Commit dashboard
@@ -131,6 +166,66 @@ jobs:
             git commit -m "chore(metrics): refresh northstar-status dashboard [skip ci]"
             git push
           fi
+
+      - name: Evaluate + act on §12.1 alerts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ inputs.repo || github.repository }}
+          ALERTS: ${{ inputs.alerts }}
+          ESC_RATE: ${{ inputs.escalation-rate }}
+          COV_MIN: ${{ inputs.coverage-delta-min }}
+          CLAIM_AGE: ${{ inputs.claim-age-seconds }}
+          CANARY_WORKFLOW: ${{ inputs.canary-workflow }}
+          ALERT_LABEL: ${{ inputs.alert-label }}
+        run: |
+          set -euo pipefail
+          NOW="$(date -u +%FT%TZ)"
+          node lib/alerts-cli.js \
+            --runs runs.json --coverage coverage.json --agent agent.json --claims claims.json \
+            --now "$NOW" \
+            --escalation-rate "$ESC_RATE" --coverage-delta-min "$COV_MIN" \
+            --claim-age-seconds "$CLAIM_AGE" --canary-workflow "$CANARY_WORKFLOW" \
+            > alerts.json
+          echo "## §12.1 Alerts" >> "$GITHUB_STEP_SUMMARY"
+          jq -r '.[] | "- **\(.rule)** [\(.severity)]: \(.state)"' alerts.json >> "$GITHUB_STEP_SUMMARY" || true
+
+          if [ "$ALERTS" != "true" ]; then
+            echo "alerts: rendering only (inputs.alerts=false) — no issues written"
+            exit 0
+          fi
+
+          # Backstop: ensure labels exist (idempotent) so issue creation never fails.
+          gh label create "$ALERT_LABEL" --repo "$REPO" --color B60205 --force 2>/dev/null || true
+          gh label create "$ALERT_LABEL/page" --repo "$REPO" --color B60205 --force 2>/dev/null || true
+          gh label create "$ALERT_LABEL/trend" --repo "$REPO" --color FBCA04 --force 2>/dev/null || true
+
+          rows="$(jq -c '.[]' alerts.json)"
+          while IFS= read -r a; do
+            [ -z "$a" ] && continue
+            RULE="$(jq -r '.rule' <<<"$a")"
+            STATE="$(jq -r '.state' <<<"$a")"
+            SEV="$(jq -r '.severity' <<<"$a")"
+            TITLE="$(jq -r '.title' <<<"$a")"
+            BODY="$(jq -r '.body' <<<"$a")"
+            NUM="$(gh issue list --repo "$REPO" --state open --label "$ALERT_LABEL" \
+              --search "in:title \"$TITLE\"" --json number,title \
+              -q "[.[]|select(.title==\"$TITLE\")][0].number // empty")"
+            if [ "$STATE" = "firing" ]; then
+              if [ -z "$NUM" ]; then
+                gh issue create --repo "$REPO" --title "$TITLE" --body "$BODY" \
+                  --label "$ALERT_LABEL" --label "$ALERT_LABEL/$SEV" \
+                  || echo "::warning::could not create alert issue for $RULE"
+              else
+                gh issue comment "$NUM" --repo "$REPO" --body "Still firing: $BODY" \
+                  || echo "::warning::could not comment alert issue #$NUM"
+              fi
+            else # clear
+              if [ -n "$NUM" ]; then
+                gh issue comment "$NUM" --repo "$REPO" --body "Recovered: $BODY" || true
+                gh issue close "$NUM" --repo "$REPO" || echo "::warning::could not close #$NUM"
+              fi
+            fi
+          done <<< "$rows"
 
       - name: Post daily digest (deduped issue)
         if: ${{ inputs.post-digest }}
