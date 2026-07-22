@@ -1,0 +1,17 @@
+name: Northstar canary
+# Nightly dogfood of the canary against examples/aidemo (the a-b bug). This caller's
+# `name:` is what `gh run list` reports for the verdict — it MUST match the
+# canary-workflow input in northstar-metrics.yml (default 'Northstar canary').
+on:
+  schedule:
+    - cron: '0 7 * * *'      # ~midnight PT — a red canary is waiting at day start
+  workflow_dispatch:
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  canary:
+    uses: ./.github/workflows/northstar-canary.yml
+    with:
+      fixture-dir: examples/aidemo
+    secrets: inherit          # passes ANTHROPIC_API_KEY to the claude-code engine
