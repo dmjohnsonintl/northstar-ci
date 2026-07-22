@@ -207,9 +207,12 @@ jobs:
             SEV="$(jq -r '.severity' <<<"$a")"
             TITLE="$(jq -r '.title' <<<"$a")"
             BODY="$(jq -r '.body' <<<"$a")"
+            # Non-fatal like the create/comment/close calls below: a transient
+            # `gh issue list` failure must not trip `set -e` and abort the loop
+            # (which would skip the remaining alerts AND the digest step).
             NUM="$(gh issue list --repo "$REPO" --state open --label "$ALERT_LABEL" \
               --search "in:title \"$TITLE\"" --json number,title \
-              -q "[.[]|select(.title==\"$TITLE\")][0].number // empty")"
+              -q "[.[]|select(.title==\"$TITLE\")][0].number // empty" 2>/dev/null || true)"
             if [ "$STATE" = "firing" ]; then
               if [ -z "$NUM" ]; then
                 gh issue create --repo "$REPO" --title "$TITLE" --body "$BODY" \
