@@ -6,6 +6,12 @@ on:
   schedule:
     - cron: '0 7 * * *'      # ~midnight PT — a red canary is waiting at day start
   workflow_dispatch:
+    inputs:
+      engine:
+        description: 'Engine for a manual run (stub = free plumbing test → deterministic RED on aidemo; claude-code = real drift check)'
+        type: choice
+        options: [claude-code, stub]
+        default: claude-code
 permissions:
   contents: write
   pull-requests: write
@@ -14,4 +20,6 @@ jobs:
     uses: ./.github/workflows/northstar-canary.yml
     with:
       fixture-dir: examples/aidemo
+      # Schedule events carry no inputs → falls back to claude-code (real nightly check).
+      engine: ${{ github.event.inputs.engine || 'claude-code' }}
     secrets: inherit          # passes ANTHROPIC_API_KEY to the claude-code engine
