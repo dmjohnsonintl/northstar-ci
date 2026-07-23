@@ -2,11 +2,18 @@ name: Northstar canary (reusable)
 # NOTE: distinct from the caller's name on purpose. `gh run list` reports the
 # CALLER's workflow name, so the verdict lookup keys on the caller ('Northstar
 # canary'); giving the reusable its own name keeps `gh workflow run` unambiguous.
+#
 # §12.1 drift detection: run the REAL engine against a known-broken fixture on a
 # schedule. A green run proves the model can still fix a known bug; a red run is an
 # unambiguous "the model stopped working" signal, independent of client traffic.
-# The verdict is this workflow's run conclusion — made trustworthy by the `assert`
-# job, which fails unless the fix-agent actually produced a green fix PR.
+#
+# WHY THE FIX LOOP RUNS DIRECTLY (not via northstar-pipeline.yml): the pipeline's
+# gate job is SUPPOSED to fail on a deliberately-broken fixture, and a reusable
+# `uses:` job can't be `continue-on-error`, so nesting the pipeline would make the
+# canary workflow conclude `failure` on EVERY run — masking the real verdict and
+# skipping the assert step (proven live, run 29968821701). Drift detection targets
+# the ENGINE + fix-agent (the parts that regress when a model changes), not the
+# gate/claim plumbing, so exercising them directly yields a truthful run conclusion.
 on:
   workflow_call:
     inputs:
@@ -14,15 +21,23 @@ on:
         description: 'Workdir holding the known-broken fixture'
         type: string
         default: 'examples/aidemo'
-      zones-json:
-        type: string
-        default: '[{"zone":"src","glob":"src/**"}]'
       engine:
         type: string
         default: 'claude-code'
-      coverage-min:
+      adapter:
         type: string
-        default: '0'
+        default: 'js-ts'
+      install-cmd:
+        description: 'Install command for the fixture (empty = skip)'
+        type: string
+        default: ''
+      test-cmd:
+        description: 'Test command (empty = adapter default)'
+        type: string
+        default: ''
+      node-version:
+        type: string
+        default: '20'
       cleanup-pr:
         description: 'Close + delete the fix PR the canary produces'
         type: boolean
@@ -34,63 +49,79 @@ permissions:
 
 jobs:
   canary:
-    uses: ./.github/workflows/northstar-pipeline.yml
-    with:
-      workdir: ${{ inputs.fixture-dir }}
-      zones-json: ${{ inputs.zones-json }}
-      coverage-min: ${{ inputs.coverage-min }}
-      coverage-mode: 'report'
-      engine: ${{ inputs.engine }}
-    secrets: inherit
-
-  # The verdict guard. The pipeline can conclude success even when the fix-agent
-  # ESCALATES (opens an ns:needs-human issue, no PR). This job fails unless a real
-  # fix PR exists on ns/fix/<run_id> — converting "the workflow ran" into "the model
-  # still works." github.run_id is shared across the nested reusable pipeline.
-  assert:
-    needs: canary
     runs-on: ubuntu-latest
-    permissions:
-      pull-requests: read
     steps:
-      - name: Assert a green fix PR was opened
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0   # fix-agent branches + pushes ns/fix/<run_id>
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ inputs.node-version }}
+
+      - name: Install fixture deps
+        if: ${{ inputs.install-cmd != '' }}
+        working-directory: ${{ inputs.fixture-dir }}
+        env:
+          INSTALL_CMD: ${{ inputs.install-cmd }}
+        run: eval "$INSTALL_CMD"
+
+      # The fixture is broken by design, so the suite fails and writes the failing
+      # log the engine reads. continue-on-error: this EXPECTED red must not fail the
+      # job — the verdict is "did the engine then fix it", asserted below.
+      - name: Capture the known-failing log (expected red)
+        id: suite
+        continue-on-error: true
+        uses: dmjohnsonintl/northstar-ci/actions/run-suite@v0
+        with:
+          workdir: ${{ inputs.fixture-dir }}
+          adapter: ${{ inputs.adapter }}
+          test-cmd: ${{ inputs.test-cmd }}
+          retries: '0'   # deterministic known failure; capture it once
+
+      - name: Run the real engine on the known bug
+        uses: dmjohnsonintl/northstar-ci/actions/fix-agent@v0
+        with:
+          workdir: ${{ inputs.fixture-dir }}
+          adapter: ${{ inputs.adapter }}
+          test-cmd: ${{ inputs.test-cmd }}
+          engine: ${{ inputs.engine }}
+          zone: canary
+          failing-log: ${{ inputs.fixture-dir }}/artifacts/test.log
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      # VERDICT. fix-agent exits 0 whether it fixed (opens a PR) or escalated (opens
+      # an ns:needs-human issue, NO PR). So the presence of a green fix PR on
+      # ns/fix/<run_id> is the true "the model still works" signal. No PR → red.
+      - name: Assert the engine produced a green fix PR
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           BRANCH: ns/fix/${{ github.run_id }}
         run: |
           set -euo pipefail
-          COUNT="$(gh pr list --repo "$REPO" --head "$BRANCH" --state all --json number -q 'length')"
+          COUNT="$(gh pr list --repo "$REPO" --head "$BRANCH" --state all --json number -q 'length' 2>/dev/null || echo 0)"
           if [ "$COUNT" -lt 1 ]; then
-            echo "::error::canary produced no fix PR on $BRANCH — the engine failed to fix the known bug (escalated or errored)."
+            echo "::error::canary RED — the engine did not fix the known bug (no PR on $BRANCH: escalated or errored)."
             exit 1
           fi
           echo "canary green: fix PR present on $BRANCH"
 
-  # Debris cleanup. Runs on green AND red (if: always()) so a failed canary leaves
-  # no open PR or branch behind. Non-fatal: never changes the verdict.
-  cleanup:
-    needs: [canary, assert]
-    if: ${{ always() && inputs.cleanup-pr }}
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
-    steps:
-      - name: Close the canary fix PR and delete its branch
+      # Debris cleanup. Runs on green AND red (if: always()) so a failed canary
+      # leaves no open PR or branch behind. Non-fatal: never changes the verdict.
+      - name: Clean up the disposable fix PR
+        if: ${{ always() && inputs.cleanup-pr }}
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           BRANCH: ns/fix/${{ github.run_id }}
         run: |
           set -uo pipefail
-          NUM="$(gh pr list --repo "$REPO" --head "$BRANCH" --state open --json number -q '.[0].number // empty')"
+          NUM="$(gh pr list --repo "$REPO" --head "$BRANCH" --state open --json number -q '.[0].number // empty' 2>/dev/null || true)"
           if [ -n "$NUM" ]; then
             gh pr close "$NUM" --repo "$REPO" --delete-branch \
               --comment "Canary run complete — closing the disposable fix PR (verdict recorded in the run conclusion)." \
               || echo "::warning::could not close canary PR #$NUM"
           else
-            # No open PR (red run, or already cleaned) — best-effort delete the branch.
             gh api -X DELETE "repos/$REPO/git/refs/heads/$BRANCH" 2>/dev/null \
               || echo "::notice::no ns/fix branch to delete for this run"
           fi

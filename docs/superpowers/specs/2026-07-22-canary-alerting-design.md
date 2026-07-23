@@ -105,6 +105,29 @@ Without it, an escalating run concludes `success` and the dashboard reports gree
 while the model has actually failed — the exact false-negative the canary exists to
 prevent. `assert` converts "the workflow ran" into "the model still works."
 
+### Revision (2026-07-23, after live proof — run 29968821701)
+
+The "call `northstar-pipeline.yml` then `assert` in a separate job" design above was
+found broken during the D4 live proof and **replaced**. Root cause: the pipeline's
+`gate` job is *supposed* to fail on a deliberately-broken fixture, so the nested
+`canary` (`uses:`) job concludes `failure` on every run. A reusable `uses:` job
+cannot be `continue-on-error`, so the whole canary workflow concluded `failure` even
+though the engine fixed the bug and opened a PR — and `assert` (plain `needs: canary`)
+was **skipped**. `canaryFromRuns` would have read **red every night**.
+
+**New mechanism (single job, verdict = run conclusion preserved):** the canary runs
+the fix loop **directly** rather than nesting the pipeline — `run-suite`
+(`continue-on-error`, captures the expected-failing log) → `fix-agent`
+(`engine: claude-code`) → an **assert step** that fails the job unless a green fix PR
+exists on `ns/fix/<run_id>` → a `cleanup` step (`if: always()`). The workflow
+conclusion now faithfully means green/red, so `canaryFromRuns` and the metrics wiring
+are unchanged. The silent-escalation guard is preserved (escalation → no PR → assert
+fails → red). Rationale: drift detection targets the **engine + fix-agent** (what
+regresses when a model changes), not the gate/claim plumbing, so exercising them
+directly is both correct and better-targeted. Inputs `zones-json`/`coverage-min` are
+dropped (pipeline-only); `adapter`/`install-cmd`/`test-cmd`/`node-version` added for
+non-`aidemo` fixtures.
+
 ---
 
 ## 2. `canarydemo.yml` (new scheduled caller)
