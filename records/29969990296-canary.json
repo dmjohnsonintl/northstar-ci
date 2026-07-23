@@ -1,0 +1,14 @@
+{
+  "engine": "stub",
+  "costUsd": null,
+  "tokens": null,
+  "model": "stub",
+  "numTurns": null,
+  "runId": "29969990296",
+  "workflow": "Northstar canary",
+  "job": "canary",
+  "layer": "unit",
+  "zone": "canary",
+  "outcome": "escalated",
+  "createdAt": "2026-07-23T00:46:14Z"
+}
