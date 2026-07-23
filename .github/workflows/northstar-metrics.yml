@@ -185,7 +185,7 @@ jobs:
             --now "$NOW" \
             --escalation-rate "$ESC_RATE" --coverage-delta-min "$COV_MIN" \
             --claim-age-seconds "$CLAIM_AGE" --canary-workflow "$CANARY_WORKFLOW" \
-            > alerts.json
+            > alerts.json || echo '[]' > alerts.json   # never black out the run on an alert-eval hiccup
           echo "## §12.1 Alerts" >> "$GITHUB_STEP_SUMMARY"
           jq -r '.[] | "- **\(.rule)** [\(.severity)]: \(.state)"' alerts.json >> "$GITHUB_STEP_SUMMARY" || true
 

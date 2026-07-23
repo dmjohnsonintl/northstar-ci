@@ -110,7 +110,7 @@ traces it already gathers (no extra API calls beyond enumerating claim refs):
 |---|---|---|---|
 | `escalation-rate` | escalations / opened fix PRs exceeds the rate | `0.5` | trend |
 | `coverage-trend` | coverage delta from the previous point is negative | delta-min `0` | trend |
-| `claim-starvation` | any active coordination claim is older than the threshold | `21600`s (6h) | page |
+| `claim-starvation` | any active coordination claim is older than the threshold | `21600`s (6h) | trend |
 | `canary` | the latest canary run concluded red | — | page |
 
 Each rule has three states — `firing`, `clear`, and *omitted* (no data, never a
