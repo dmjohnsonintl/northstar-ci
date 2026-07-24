@@ -1,19 +1,19 @@
 # Northstar status — dmjohnsonintl/northstar-ci
 
-_Window: last 14 days · generated 2026-07-23T15:26:46Z_
+_Window: last 14 days · generated 2026-07-24T15:09:10Z_
 
 ## Pipeline health
 
-- **Runs:** 122 (119 completed)
-- **Green rate:** 83.2% ████████░░ (99 passed / 20 failed)
-- **Median run time:** 17s
-- **CI time (window):** 41 min
+- **Runs:** 136 (133 completed)
+- **Green rate:** 85% █████████░ (113 passed / 20 failed)
+- **Median run time:** 16s
+- **CI time (window):** 45 min
 
 | Workflow | Runs | Passed | Failed |
 |---|--:|--:|--:|
 | .github/workflows/min.yml | 3 | 0 | 3 |
-| Northstar GC | 54 | 54 | 0 |
-| Northstar canary | 5 | 3 | 2 |
+| Northstar GC | 66 | 66 | 0 |
+| Northstar canary | 6 | 4 | 2 |
 | aidemo | 4 | 0 | 4 |
 | bugintakedemo | 1 | 1 | 0 |
 | ci | 17 | 16 | 0 |
@@ -21,7 +21,7 @@ _Window: last 14 days · generated 2026-07-23T15:26:46Z_
 | fixdemo | 7 | 0 | 7 |
 | flakydemo | 1 | 1 | 0 |
 | jestdemo | 1 | 1 | 0 |
-| metricsdemo | 12 | 11 | 0 |
+| metricsdemo | 13 | 12 | 0 |
 | plain | 2 | 2 | 0 |
 | pydemo | 1 | 1 | 0 |
 | secretscandemo | 1 | 1 | 0 |
@@ -37,7 +37,7 @@ _Window: last 14 days · generated 2026-07-23T15:26:46Z_
 
 ## Agent / model health
 
-- **Fix success rate:** 100% (10 fixed → PR, 0 escalated to `ns:needs-human`)
+- **Fix success rate:** 100% (11 fixed → PR, 0 escalated to `ns:needs-human`)
 - **Human acceptance:** 0%
 - **Bugs reproduced:** 1 (`ns:needs-info`: 0)
 - **Tests promoted to regression:** —
@@ -54,8 +54,8 @@ _Window: last 14 days · generated 2026-07-23T15:26:46Z_
 
 ## Cost
 
-- **Total (window):** $0.2307 across 4/6 fix runs with cost data
-- **Per fix run:** $0.0577
-- **Tokens:** in 52 · out 4041 · cache-read 68759
-- **By layer:** unit $0.2307 (6 runs)
+- **Total (window):** $0.2916 across 5/7 fix runs with cost data
+- **Per fix run:** $0.0583
+- **Tokens:** in 66 · out 5129 · cache-read 87733
+- **By layer:** unit $0.2916 (7 runs)
 
