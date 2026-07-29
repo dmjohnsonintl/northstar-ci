@@ -1,19 +1,19 @@
 # Northstar status — dmjohnsonintl/northstar-ci
 
-_Window: last 14 days · generated 2026-07-28T15:36:49Z_
+_Window: last 14 days · generated 2026-07-29T15:21:31Z_
 
 ## Pipeline health
 
-- **Runs:** 193 (190 completed)
-- **Green rate:** 89.5% █████████░ (170 passed / 20 failed)
+- **Runs:** 200 (198 completed)
+- **Green rate:** 91.9% █████████░ (182 passed / 16 failed)
 - **Median run time:** 16s
-- **CI time (window):** 63 min
+- **CI time (window):** 68 min
 
 | Workflow | Runs | Passed | Failed |
 |---|--:|--:|--:|
-| .github/workflows/min.yml | 3 | 0 | 3 |
-| Northstar GC | 115 | 115 | 0 |
-| Northstar canary | 10 | 8 | 2 |
+| .github/workflows/min.yml | 1 | 0 | 1 |
+| Northstar GC | 126 | 126 | 0 |
+| Northstar canary | 11 | 9 | 2 |
 | aidemo | 4 | 0 | 4 |
 | bugintakedemo | 1 | 1 | 0 |
 | ci | 17 | 16 | 0 |
@@ -21,11 +21,11 @@ _Window: last 14 days · generated 2026-07-28T15:36:49Z_
 | fixdemo | 7 | 0 | 7 |
 | flakydemo | 1 | 1 | 0 |
 | jestdemo | 1 | 1 | 0 |
-| metricsdemo | 17 | 16 | 0 |
-| plain | 2 | 2 | 0 |
+| metricsdemo | 18 | 17 | 0 |
+| plain | 1 | 1 | 0 |
 | pydemo | 1 | 1 | 0 |
 | secretscandemo | 1 | 1 | 0 |
-| selftest | 8 | 4 | 3 |
+| selftest | 5 | 4 | 1 |
 | signaldemo | 2 | 1 | 1 |
 | substratedemo | 1 | 1 | 0 |
 | vitedemo | 1 | 1 | 0 |
@@ -37,7 +37,7 @@ _Window: last 14 days · generated 2026-07-28T15:36:49Z_
 
 ## Agent / model health
 
-- **Fix success rate:** 100% (15 fixed → PR, 0 escalated to `ns:needs-human`)
+- **Fix success rate:** 100% (16 fixed → PR, 0 escalated to `ns:needs-human`)
 - **Human acceptance:** 0%
 - **Bugs reproduced:** 1 (`ns:needs-info`: 0)
 - **Tests promoted to regression:** —
@@ -54,8 +54,8 @@ _Window: last 14 days · generated 2026-07-28T15:36:49Z_
 
 ## Cost
 
-- **Total (window):** $0.5390 across 9/11 fix runs with cost data
-- **Per fix run:** $0.0599
-- **Tokens:** in 124 · out 9512 · cache-read 167587
-- **By layer:** unit $0.5390 (11 runs)
+- **Total (window):** $0.6008 across 10/12 fix runs with cost data
+- **Per fix run:** $0.0601
+- **Tokens:** in 138 · out 10623 · cache-read 186590
+- **By layer:** unit $0.6008 (12 runs)
 
