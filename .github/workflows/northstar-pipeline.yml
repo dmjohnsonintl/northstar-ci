@@ -5,6 +5,14 @@ on:
       workdir:
         type: string
         default: '.'
+      concurrency-key:
+        description: >-
+          Disambiguates the concurrency group when one caller workflow gates
+          several zones. Defaults to `workdir`, which is already distinct per
+          zone in the common case; set it explicitly only when two jobs share a
+          workdir (e.g. two zone globs over the same tree).
+        type: string
+        default: ''
       zones-json:
         type: string
         required: true
@@ -58,8 +66,13 @@ permissions:
   contents: write
   pull-requests: write
 
+# One in-flight pipeline per (caller workflow, zone, ref). `github.workflow`
+# resolves to the CALLER's name inside a reusable workflow, so it is identical
+# for every job in a multi-zone caller — keying on it alone made the second
+# invocation CANCEL the first, silently losing a zone (issue #12). The
+# concurrency-key segment (defaulting to workdir) restores per-zone isolation.
 concurrency:
-  group: northstar-${{ github.workflow }}-${{ github.ref }}
+  group: northstar-${{ github.workflow }}-${{ inputs.concurrency-key || inputs.workdir }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:

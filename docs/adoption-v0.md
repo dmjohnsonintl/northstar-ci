@@ -36,3 +36,60 @@
 6. **For the real AI fix-agent** (`engine: 'claude-code'`): add an
    `ANTHROPIC_API_KEY` secret to the consuming repo. With `engine: 'stub'`
    (default) no key is needed.
+
+## Gating more than one zone
+
+Put every zone in **one** caller workflow, one job each. Each job gets its own
+concurrency group automatically, because the group includes `workdir`:
+
+```yaml
+name: Northstar
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  frontend:
+    uses: dmjohnsonintl/northstar-ci/.github/workflows/northstar-pipeline.yml@v0
+    with:
+      workdir: frontend
+      zones-json: '[{"zone":"frontend","glob":"frontend/**"}]'
+      coverage-min: '0'
+      coverage-mode: 'no-decrease'
+    secrets: inherit
+  backend:
+    uses: dmjohnsonintl/northstar-ci/.github/workflows/northstar-pipeline.yml@v0
+    with:
+      workdir: backend
+      adapter: python
+      python-version: '3.11'
+      install-cmd: pip install -r requirements.txt
+      test-cmd: python -m pytest
+      coverage-cmd: coverage run -m pytest && coverage json -o coverage.json
+      zones-json: '[{"zone":"backend","glob":"backend/**"}]'
+      coverage-min: '0'
+      coverage-mode: 'no-decrease'
+    secrets: inherit
+```
+
+**If two jobs share a `workdir`** (e.g. two zone globs over the same tree), set
+`concurrency-key` explicitly so they don't cancel each other:
+
+```yaml
+  api:
+    uses: dmjohnsonintl/northstar-ci/.github/workflows/northstar-pipeline.yml@v0
+    with:
+      workdir: .
+      concurrency-key: api        # <- distinct per job
+      zones-json: '[{"zone":"api","glob":"api/**"}]'
+```
+
+> **Why.** Inside a reusable workflow `github.workflow` resolves to the *caller's*
+> name, so it is identical for every job in one caller. Before `concurrency-key`
+> existed, all zones landed in the same group and `cancel-in-progress` made the
+> second job **cancel** the first — a zone would vanish with no failure to point
+> at (issue #12). Splitting into one workflow file per zone was the old
+> workaround; it is no longer necessary.
