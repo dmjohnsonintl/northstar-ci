@@ -41,14 +41,31 @@ JSON Schemas in `schema/substrate/`.
 ## Wired into the pipeline
 - **Enforcement (claims):** the fix job acquires `ns/claim/<zone>` before fixing and
   releases after — concurrent fixes on one zone queue instead of colliding.
-- **Advisory (signals):** the gate emits `ns:signal/hot-area` (touched zones, TTL 24h)
-  and `ns:signal/coverage-gap` (on a gap) — to the step-summary readout always, and as
-  PR labels best-effort.
+- **Advisory (signals):** the gate emits `ns:signal/hot-area` (touched zones, TTL 24h),
+  `ns:signal/coverage-gap` (on a gap), and `ns:signal/flaky` — to the step-summary
+  readout always, and as PR labels best-effort.
+- **Flake quarantine is live.** `actions/run-suite` retries once: a suite that fails
+  then passes emits `flaky=true` and exits **0**, so the failure is quarantined and
+  never routed to the fix-agent. Only a deterministic failure (every attempt fails)
+  exits non-zero.
+
+## Escalation reaches a human through the PR
+
+When the fix-agent cannot make the suite green it escalates — and the escalation is
+delivered on the **pull request** (a comment plus the `ns:needs-human` label), not
+via an issue. That is deliberate: commenting needs only `pull-requests: write`, which
+adoption already grants, whereas `issues: write` **cannot** be declared by the
+pipeline (see [`adoption-v0.md`](adoption-v0.md#how-escalation-reaches-you)). Issue
+creation remains the fallback when there is no PR.
+
+Independently of delivery, **an escalation fails the job**. A human-needed state is
+never a green check; that is the guarantee, and it holds even if every delivery
+channel fails.
 
 ## Not yet wired (next increment)
-- **`ns:signal/flaky`** — needs `run-suite` retry-once (fail→retry→pass ⇒ quarantine,
-  don't route to fix).
-- **Signal-label GC via the issue timeline** — claims GC is live; expiring signal
-  labels by TTL (reading label-add time from the timeline) is the next GC increment.
+- **Signal-label GC.** `northstar-gc.yml` already *computes* `expireSignals` and
+  reports the count to the step summary, but nothing removes the labels yet — the
+  remaining work is reading label-add time from the issue timeline and acting on it.
+  Claim reclaim and starvation escalation are both live.
 - **Standalone `route-failure` composite action** — its behavior is currently inlined
   in the pipeline (resolve zone → acquire claim).

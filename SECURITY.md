@@ -5,9 +5,10 @@ to be safe to run inside another repo's CI, and safe to have its source public.
 
 ## What this package does NOT contain
 - **No secrets, tokens, or API keys.** Nothing in this repo or its git history is a
-  credential. Any credentials a future version needs (e.g. an LLM API key for the
-  fix-agent) are supplied by the **consuming** repo via its own encrypted secrets and
-  are never stored here.
+  credential. The one credential Northstar can use — an `ANTHROPIC_API_KEY` for the
+  `claude-code` fix-agent engine — is supplied by the **consuming** repo via its own
+  encrypted secrets, reaches the engine only through `env:`, and is never stored here.
+  With the default `stub` engine no key exists at all.
 
 ## Design choices that keep consumers safe
 - **`pull_request`, never `pull_request_target`.** Untrusted pull-request code is
@@ -22,6 +23,14 @@ to be safe to run inside another repo's CI, and safe to have its source public.
   (to ratchet the coverage baseline and promote regression tests on the default
   branch) and `pull-requests: write`. Consumers can further restrict via their caller
   workflow's `permissions:`.
+
+  > This set is **load-bearing and must not be widened**. A reusable workflow that
+  > declares a permission its caller did not grant does not degrade gracefully — the
+  > entire run ends in `startup_failure` with no jobs, no logs and no diagnostic
+  > (verified directly, 2026-08-05). Because `v0` is a moving tag, adding a scope
+  > here silently breaks every consumer that has not updated their caller first.
+  > Escalation was deliberately built on `pull-requests: write` for this reason
+  > rather than requiring `issues: write`.
 - **No dynamic `ref:` checkouts** of untrusted input.
 - **Pinned actions.** Third-party steps use first-party GitHub actions
   (`actions/checkout`, `actions/setup-node`) at major-version tags. SHA-pinning is on

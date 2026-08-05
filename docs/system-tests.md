@@ -28,10 +28,18 @@ The `system` job:
 
 A double failure routes to the **layer-aware fix-agent** (`layer=system`): it
 claims the zone, hands the E2E failure log to the configured engine for a single
-attempt, and — on green — opens a **human-review PR** (never auto-merged). If it
-can't fix it, it labels `ns:needs-human`. Set `engine: claude-code` (plus an
-`ANTHROPIC_API_KEY` secret) for real fixes; the default `stub` engine only
-demonstrates the wiring.
+attempt, and — on green — opens a **human-review PR** (never auto-merged).
+
+If it can't fix it, it **escalates and fails the job**. The escalation is delivered
+as a comment plus the `ns:needs-human` label on the pull request, falling back to an
+issue when there is no PR. A human-needed state is never a green check — see
+[`adoption-v0.md`](adoption-v0.md#how-escalation-reaches-you).
+
+Set `engine: claude-code` (plus an `ANTHROPIC_API_KEY` secret) for real fixes; the
+default `stub` engine only demonstrates the wiring. The system layer gets the same
+layer-aware prompt framing as the unit layer — an E2E failure is described to the
+engine as a possible selector, timing, or genuine product regression rather than a
+single broken function.
 
 ## Staging E2E tests for promotion
 
