@@ -103,7 +103,7 @@ stream as ordinary fix runs.
 
 ## Alerting (§12.1)
 
-The metrics workflow evaluates four alert rules on every run, using the same
+The metrics workflow evaluates five alert rules on every run, using the same
 traces it already gathers (no extra API calls beyond enumerating claim refs):
 
 | Rule | Fires when | Default threshold | Severity |
@@ -111,7 +111,29 @@ traces it already gathers (no extra API calls beyond enumerating claim refs):
 | `escalation-rate` | escalations / opened fix PRs exceeds the rate | `0.5` | trend |
 | `coverage-trend` | coverage delta from the previous point is negative | delta-min `0` | trend |
 | `claim-starvation` | any active coordination claim is older than the threshold | `21600`s (6h) | trend |
+| `human-acceptance` | humans merge less than this share of **decided** fix PRs | `0.5`, min sample `3` | trend |
 | `canary` | the latest canary run concluded red | — | page |
+
+### `human-acceptance` — read the counting rules before tuning it
+
+Spec §12.1 names this signal, and it is the only one that measures the *human*
+half of the loop: is the agent producing PRs people actually take? Two counting
+traps make a naive implementation report a number that is not merely imprecise but
+structurally wrong, so the counts come from the pure, unit-tested
+`metrics.fixPrOutcomes` rather than from the gather:
+
+- **`gh pr list --state closed` includes MERGED PRs.** GitHub models a merge as a
+  close. Counting that as "closed unmerged" puts every merge in the denominator
+  twice, capping the rate at 50% even if everything merged.
+- **The nightly canary opens an `ns/fix/<run_id>` PR that its own cleanup closes.**
+  Those carry no labels, so nothing distinguishes them from a genuine fix PR by
+  name. Each canary run would otherwise register as a human rejection. They are
+  identified by matching the run id in the branch name against `runs.json`, which
+  the workflow already gathers.
+
+Also: **open PRs count toward neither outcome** — undecided is not rejected — and
+below `acceptance-min-sample` decided PRs the rule is *omitted*, because a single
+declined PR is a 0% rate and should not page anyone.
 
 Each rule has three states — `firing`, `clear`, and *omitted* (no data, never a
 fabricated clear) — evaluated the same way in the always-on unit tests
