@@ -100,7 +100,13 @@ jobs:
           gh pr list --repo "$REPO" --state all --limit 200 \
             --json headRefName,state,mergedAt \
             -q '[.[]|select(.headRefName|startswith("ns/"))]' > prs.json
-          ESC=$(gh issue list --repo "$REPO" --state all --label ns:needs-human --limit 200 --json number -q 'length')
+          # Escalations land on a PR when one exists (fix-agent prefers the PR,
+          # because that needs only pull-requests: write — see the fix-agent
+          # comment on why issues: write is undeclarable in a reusable workflow).
+          # Count BOTH channels, or every PR-delivered escalation reads as zero.
+          ESC_I=$(gh issue list --repo "$REPO" --state all --label ns:needs-human --limit 200 --json number -q 'length')
+          ESC_P=$(gh pr list --repo "$REPO" --state all --label ns:needs-human --limit 200 --json number -q 'length')
+          ESC=$(( ESC_I + ESC_P ))
           NEEDS_INFO=$(gh issue list --repo "$REPO" --state all --label ns:needs-info --limit 200 --json number -q 'length')
           jq -n \
             --argjson opened "$OPENED" --argjson escalations "$ESC" \

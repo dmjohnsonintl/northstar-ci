@@ -79,6 +79,11 @@ jobs:
           retries: '0'   # deterministic known failure; capture it once
 
       - name: Run the real engine on the known bug
+        # fix-agent now EXITS NON-ZERO on escalation (a human-needed state must
+        # never be a green job). The canary's verdict is the assert step below,
+        # which needs to run either way to produce a precise green/red — so an
+        # escalation is absorbed here and converted by assert.
+        continue-on-error: true
         uses: dmjohnsonintl/northstar-ci/actions/fix-agent@v0
         with:
           workdir: ${{ inputs.fixture-dir }}

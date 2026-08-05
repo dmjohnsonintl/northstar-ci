@@ -37,6 +37,34 @@
    `ANTHROPIC_API_KEY` secret to the consuming repo. With `engine: 'stub'`
    (default) no key is needed.
 
+## How escalation reaches you
+
+When the single-attempt fix does not make the suite green, Northstar escalates.
+Two things are guaranteed with the permissions above and no extra setup:
+
+- **The `fix` job goes red.** A human-needed state is never a green job. This is
+  the guarantee — it holds even if every delivery channel below fails.
+- **On a PR, you get a comment plus the `ns:needs-human` label**, using
+  `pull-requests: write` which you already granted.
+
+`issues: write` is **optional**. Grant it if you also want an `ns:needs-human`
+*issue* filed for escalations on default-branch pushes, where there is no PR to
+comment on:
+
+```yaml
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write        # optional — issue-based escalation when there is no PR
+```
+
+> **Why it isn't required.** The pipeline is a reusable workflow, and a reusable
+> workflow that declares a permission its caller did not grant fails the entire
+> run with `startup_failure` — no jobs, no logs, no diagnostic. So the pipeline
+> cannot declare `issues: write` on your behalf without breaking every install
+> that hasn't added it. Escalation is therefore built on the permission you
+> already grant, and the red job is the backstop.
+
 ## Gating more than one zone
 
 Put every zone in **one** caller workflow, one job each. Each job gets its own

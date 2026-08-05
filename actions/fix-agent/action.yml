@@ -80,6 +80,11 @@ runs:
         BRANCH: ${{ steps.branch.outputs.name }}
         RUN_ID: ${{ github.run_id }}
         PR_TITLE: ${{ inputs.pr-title }}
+        # Untrusted on a fork PR — passed via env and always quoted, never
+        # interpolated into the shell body.
+        HEAD_REF: ${{ github.head_ref }}
+        REPO: ${{ github.repository }}
+        SERVER: ${{ github.server_url }}
       run: |
         set +e
         bash "${{ github.action_path }}/../../adapters/${{ inputs.adapter }}/run.sh"; PASS=$?
@@ -96,13 +101,45 @@ runs:
             echo "::warning::Fix is green on branch $BRANCH, but PR creation failed. Enable 'Allow GitHub Actions to create and approve pull requests' (repo Settings → Actions → General → Workflow permissions), or open the PR from $BRANCH manually."
           fi
         else
-          gh issue create \
-            --title "Northstar: needs human (run ${RUN_ID})" \
-            --label "ns:needs-human" \
-            --body "The single-attempt fix did not make the suite green. A human is needed." \
-            || echo "::warning::could not create the ns:needs-human issue (check permissions)"
-          echo "[northstar] still red after one attempt → escalated to a human"
+          # ESCALATION. A human is needed, and this step must NEVER exit 0 — a
+          # green job is exactly how escalations went silently undelivered and
+          # uncounted (council-principis run 30976878181: outcome=escalated
+          # recorded, no issue filed, job green).
+          #
+          # Delivery is attempted on the PR FIRST because that needs only
+          # `pull-requests: write`, which adoption already requires. `issues:
+          # write` cannot be relied on: the pipeline is a reusable workflow, and
+          # a reusable workflow that declares a permission its caller did not
+          # grant fails the ENTIRE run with `startup_failure` — no jobs, no log,
+          # no diagnostic (verified 2026-08-05). So the pipeline cannot declare
+          # `issues: write` without breaking every consumer that hasn't updated.
+          BODY="**Northstar: a human is needed.** The single-attempt fix by the '${{ inputs.engine }}' engine did not make the suite green. Failing log: \`${NS_WORKDIR}/artifacts/test.log\` in [run ${RUN_ID}](${SERVER}/${REPO}/actions/runs/${RUN_ID})."
+          DELIVERED=""
+          # github.head_ref via env, never interpolated into the script — branch
+          # names are attacker-controllable on a fork PR.
+          if [ -n "${HEAD_REF:-}" ]; then
+            PR_NUM="$(gh pr list --head "$HEAD_REF" --state open --json number -q '.[0].number' 2>/dev/null)"
+            if [ -n "$PR_NUM" ]; then
+              gh pr comment "$PR_NUM" --body "$BODY" >/dev/null 2>&1 && DELIVERED="PR #$PR_NUM"
+              # Label is best-effort: it may not exist yet in a fresh install.
+              gh pr edit "$PR_NUM" --add-label "ns:needs-human" >/dev/null 2>&1 || true
+            fi
+          fi
+          # No PR (e.g. a push to the default branch) → fall back to an issue.
+          if [ -z "$DELIVERED" ]; then
+            gh issue create \
+              --title "Northstar: needs human (run ${RUN_ID})" \
+              --label "ns:needs-human" \
+              --body "$BODY" >/dev/null 2>&1 && DELIVERED="an issue"
+          fi
           echo "outcome=escalated" >> "$GITHUB_OUTPUT"
+          if [ -n "$DELIVERED" ]; then
+            echo "[northstar] still red after one attempt → escalated to a human via $DELIVERED"
+          else
+            echo "::warning::Escalation could not be delivered to a PR or an issue. Grant 'issues: write' in the caller for issue-based escalation on default-branch runs. This job fails regardless, so the signal is not lost."
+          fi
+          echo "::error::Northstar needs a human: the single-attempt fix did not make the suite green."
+          exit 1
         fi
 
     - name: Persist metrics record (loud but never fails the fix)
