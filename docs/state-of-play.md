@@ -39,8 +39,8 @@ commits `northstar-status.md` on a schedule. That is expected. See
 | `council-principis` | frontend (vitest) + backend (pytest) | **Live** since 2026-08-05. Baselines established (20.12% / 74.64%) |
 | `a11yplus` | api (Django) | PR #1 **open, unmerged** since 2026-07-23 — owner is handling it |
 
-Both live consumers run `engine: 'stub'`. **The real fix-agent has never
-completed a run against a client bug** — see Blocked below.
+Both live consumers run `engine: 'stub'` by default. **The real fix-agent has now
+been proven once against a real client bug** — see below.
 
 ### Two consumer-shaped gotchas worth remembering
 
@@ -103,38 +103,75 @@ telling you when a human is needed, that is the most expensive possible bug clas
 - Issue #4 (`ns:bug`) is the intentional `examples/bugdemo` fixture. Ignore.
 - Nightly canary green; GC sweeping hourly.
 
-## Blocked
+## The first real fix-agent run — done, 2026-08-05
 
-**The first real fix-agent run.** `council-principis` PR #51 carries a
-deliberately seeded bug (a dropped accumulator flush in
-`frontend/src/speech/chunkForSpeech`, 2 genuine test failures) with
-`engine: 'claude-code'` enabled on that branch only. Every run so far has
-returned in ~2s having done nothing. The now-surfaced diagnostic:
+The question this package existed to answer, and could not until today: **can the
+real agent fix a bug that isn't a fixture with a known answer?** Yes.
 
-```json
-{ "api_error_status": 400, "result": "Credit balance is too low",
-  "terminal_reason": "api_error", "total_cost_usd": 0 }
+A deliberately seeded bug on a `council-principis` branch — the accumulator flush
+removed from `chunkForSpeech` in `frontend/src/speech/sentences.ts`, 2 genuine
+failures out of 256 tests, `engine: 'claude-code'` on that branch only. It was
+committed under a *misleading* message arguing the removed line was redundant,
+which is the exact wrong reasoning that produces this defect. The agent had that
+framing in context and rejected it:
+
+```diff
+       else { out.push(buf); buf = part; }
+     }
++    if (buf) out.push(buf); // flush the last clause group — otherwise the tail is dropped
+   }
 ```
 
-**The account behind the `ANTHROPIC_API_KEY` secret has no credit.** Nothing is
-wrong with the wiring, the secret, or the agent. Add credit (or swap in a funded
-key) and `gh run rerun 30976878181 --failed` — no other setup, ~$0.06.
+| | |
+|---|---|
+| Result | 256 / 256 green |
+| Turns | 10 |
+| Cost | **$0.18** |
+| Tests touched | none — source only |
+
+Both experiment PRs (#51, #52) were **closed, not merged**: the fix branch
+descends from the test branch, so merging would have dragged the
+`engine: 'claude-code'` flip into `master`, and the fix is a no-op against
+`master` anyway — the bug only ever existed on the branch.
+
+### Three failures on the way, each one loud
+
+Worth recording, because it is the instrumentation work paying for itself. The
+same sequence two days earlier would have presented as "job passed, nothing
+happened," three times:
+
+1. `Credit balance is too low` — the key in `~/.zshrc` belonged to a different
+   Anthropic account.
+2. `Invalid API key` — the replacement was pasted with stray whitespace.
+   `gh secret set --body` stores exactly what it is given; pipe through
+   `tr -d '[:space:]'`.
+3. `PR creation failed. Enable…` — see the open item below.
+
+**One key for everything.** `ANTHROPIC_API_KEY` is the same value in every repo
+(`northstar-ci`, `council-principis`, and any future consumer). There is no
+per-client key, and a workspace per client only adds another spend cap to
+misconfigure.
 
 ## Open, roughly by value per effort
 
-1. **Finish the fix-agent experiment** (above). It is the only genuinely unknown
-   thing left; everything below is known work. It is also the first data that
-   would ever move the human-acceptance number in #27.
-2. **Implementation plan for the adoption-stalled rule.** Spec is written and
+1. **Enable PR creation on `council-principis`.** Settings → Actions → General →
+   Workflow permissions → *"Allow GitHub Actions to create and approve pull
+   requests."* Without it the fix-agent pushes its branch but cannot open the PR —
+   #52 had to be opened by hand. This is step 5 of [`adoption-v0.md`](adoption-v0.md)
+   and the last consumer-side gap. `alto-works` needs checking too.
+2. **Decide whether `engine: 'claude-code'` goes on by default** anywhere, now
+   that it is proven. It is per-caller config, so it can be enabled one zone at a
+   time. Budget roughly $0.18 per real failure.
+3. **Implementation plan for the adoption-stalled rule.** Spec is written and
    corrected: [`superpowers/specs/2026-08-02-adoption-alerting-design.md`](superpowers/specs/2026-08-02-adoption-alerting-design.md).
-3. **README.** Still says the fix-agent, bug-intake and monitoring "land in later
+4. **README.** Still says the fix-agent, bug-intake and monitoring "land in later
    versions." All three shipped. It is the front door and it undersells by a full
    version. It also omits the `permissions:` block that `adoption-v0.md` requires.
-4. **`scan-core` and `a11yplus-worker`.** Both have real 15-file `node --test`
+5. **`scan-core` and `a11yplus-worker`.** Both have real 15-file `node --test`
    suites; each needs `c8` plus `test:ci`/`test:coverage` scripts. Would take
    adoption from two repos to four.
-5. **Pin Node** in the client repos (see above).
-6. **Engine cannot detect a fix that creates a new file.** Deliberate tradeoff
+6. **Pin Node** in the client repos (see above).
+7. **Engine cannot detect a fix that creates a new file.** Deliberate tradeoff
    from #4 — `git add -u` stages tracked modifications only, so artifacts can
    never be swept in. That case now fails loudly rather than committing junk,
    which is the safe direction, but it is a real limitation.
