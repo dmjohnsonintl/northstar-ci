@@ -42,6 +42,14 @@ on:
       claim-age-seconds:
         type: number
         default: 21600
+      acceptance-min:
+        description: 'Fire when humans merge less than this fraction of fix PRs'
+        type: number
+        default: 0.5
+      acceptance-min-sample:
+        description: 'Minimum DECIDED fix PRs before the acceptance rule is evaluated'
+        type: number
+        default: 3
       canary-workflow:
         type: string
         default: 'Northstar canary'
@@ -82,17 +90,22 @@ jobs:
             -q '[.[]|select(.headRefName|startswith("ns/"))]|length')
           REPRO=$(gh pr list --repo "$REPO" --state all --limit 200 --json headRefName \
             -q '[.[]|select(.headRefName|startswith("ns/bug/"))]|length')
-          MERGED=$(gh pr list --repo "$REPO" --state merged --limit 200 --json headRefName \
-            -q '[.[]|select(.headRefName|startswith("ns/"))]|length')
-          CLOSED=$(gh pr list --repo "$REPO" --state closed --limit 200 --json headRefName \
-            -q '[.[]|select(.headRefName|startswith("ns/"))]|length')
+          # Raw Northstar PR list — merged/closed-unmerged are NOT counted here.
+          # Two traps make a shell count wrong: `gh pr list --state closed` includes
+          # MERGED PRs (GitHub models a merge as a close), and the nightly canary
+          # opens an ns/fix/<run_id> PR that its own cleanup closes — unlabeled, so
+          # indistinguishable from a real fix PR by name. Both are filtered in
+          # lib/metrics.js fixPrOutcomes, which is pure and unit-tested; the run ids
+          # in runs.json are what identify the canary's PRs.
+          gh pr list --repo "$REPO" --state all --limit 200 \
+            --json headRefName,state,mergedAt \
+            -q '[.[]|select(.headRefName|startswith("ns/"))]' > prs.json
           ESC=$(gh issue list --repo "$REPO" --state all --label ns:needs-human --limit 200 --json number -q 'length')
           NEEDS_INFO=$(gh issue list --repo "$REPO" --state all --label ns:needs-info --limit 200 --json number -q 'length')
           jq -n \
             --argjson opened "$OPENED" --argjson escalations "$ESC" \
             --argjson reproduced "$REPRO" --argjson needsInfo "$NEEDS_INFO" \
-            --argjson merged "$MERGED" --argjson closed "$CLOSED" \
-            '{fixPrsOpened:$opened, escalations:$escalations, reproduced:$reproduced, needsInfo:$needsInfo, fixPrsMerged:$merged, fixPrsClosedUnmerged:$closed}' \
+            '{fixPrsOpened:$opened, escalations:$escalations, reproduced:$reproduced, needsInfo:$needsInfo}' \
             > agent.json
 
           # Coordination health + regression growth, from substrate traces.
@@ -146,10 +159,10 @@ jobs:
           set -euo pipefail
           NOW="$(date -u +%FT%TZ)"
           mkdir -p docs
-          node lib/metrics-cli.js --runs runs.json --coverage coverage.json --agent agent.json --extra extra.json --records records.json \
+          node lib/metrics-cli.js --runs runs.json --coverage coverage.json --agent agent.json --prs prs.json --extra extra.json --records records.json \
             --now "$NOW" --since "$SINCE" --repo "$REPO" --mode dashboard --canary-workflow "$CANARY_WORKFLOW" \
             | tee -a "$GITHUB_STEP_SUMMARY" > docs/northstar-status.md
-          node lib/metrics-cli.js --runs runs.json --coverage coverage.json --agent agent.json --extra extra.json --records records.json \
+          node lib/metrics-cli.js --runs runs.json --coverage coverage.json --agent agent.json --prs prs.json --extra extra.json --records records.json \
             --now "$NOW" --since "$SINCE" --repo "$REPO" --mode digest --canary-workflow "$CANARY_WORKFLOW" > digest.txt
           echo "digest: $(cat digest.txt)"
 
@@ -175,16 +188,19 @@ jobs:
           ESC_RATE: ${{ inputs.escalation-rate }}
           COV_MIN: ${{ inputs.coverage-delta-min }}
           CLAIM_AGE: ${{ inputs.claim-age-seconds }}
+          ACCEPT_MIN: ${{ inputs.acceptance-min }}
+          ACCEPT_MIN_SAMPLE: ${{ inputs.acceptance-min-sample }}
           CANARY_WORKFLOW: ${{ inputs.canary-workflow }}
           ALERT_LABEL: ${{ inputs.alert-label }}
         run: |
           set -euo pipefail
           NOW="$(date -u +%FT%TZ)"
           node lib/alerts-cli.js \
-            --runs runs.json --coverage coverage.json --agent agent.json --claims claims.json \
+            --runs runs.json --coverage coverage.json --agent agent.json --claims claims.json --prs prs.json \
             --now "$NOW" \
             --escalation-rate "$ESC_RATE" --coverage-delta-min "$COV_MIN" \
             --claim-age-seconds "$CLAIM_AGE" --canary-workflow "$CANARY_WORKFLOW" \
+            --acceptance-min "$ACCEPT_MIN" --acceptance-min-sample "$ACCEPT_MIN_SAMPLE" \
             > alerts.json || echo '[]' > alerts.json   # never black out the run on an alert-eval hiccup
           echo "## §12.1 Alerts" >> "$GITHUB_STEP_SUMMARY"
           jq -r '.[] | "- **\(.rule)** [\(.severity)]: \(.state)"' alerts.json >> "$GITHUB_STEP_SUMMARY" || true
