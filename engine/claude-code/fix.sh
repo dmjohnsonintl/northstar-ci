@@ -52,8 +52,13 @@ set -e
 
 if [ "$CLAUDE_RC" -ne 0 ] || [ -z "${OUT//[[:space:]]/}" ]; then
   echo "::error::claude-code engine failed (exit $CLAUDE_RC). It produced no usable result, so no fix was attempted."
+  # BOTH streams. The CLI reports its own errors as JSON on STDOUT and can leave
+  # stderr completely empty (council-principis run 30976878181: exit 1, ~2s, no
+  # stderr at all), so printing only stderr still yields a blank diagnostic.
   echo "[northstar] --- engine stderr (first 40 lines) ---" >&2
   head -40 "$ERRLOG" >&2 || true
+  echo "[northstar] --- engine stdout (first 40 lines) ---" >&2
+  printf '%s\n' "$OUT" | head -40 >&2 || true
   rm -f "$ERRLOG"
   exit 1
 fi
