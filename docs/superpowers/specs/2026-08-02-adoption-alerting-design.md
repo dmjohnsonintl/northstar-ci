@@ -36,16 +36,21 @@ Nothing was watching.
 
 Two distinct failure modes, both real:
 
-- **Mode A — proposed, never merged.** `a11yplus` PR #1: `mergeable: true`, 1 file,
-  31 lines, zero comments, never updated after creation. Its `master` has had **zero
-  commits since Jul 23**, so it is not stale — it was simply never clicked.
-- **Mode B — branched, never proposed.** `council-principis` `ns/adopt-northstar`:
-  no PR was ever opened. It is **4 ahead / 55 behind** `master`, and the 55 collide
-  on all three files the adoption had to modify (`frontend/package.json`,
+- **Mode A — stalled.** `a11yplus` PR #1: `mergeable: true`, 1 file, 31 lines, zero
+  comments, never updated after creation. Its `master` has had **zero commits since
+  Jul 23**, so it is not stale — it was simply never clicked. Nothing about drift
+  would ever have fired on it.
+- **Mode B — stalled *and* drifted.** `council-principis` PR #44 on branch
+  `ns/adopt-northstar`: **4 ahead / 55 behind** `master`, and the 55 collide on all
+  three files the adoption had to modify (`frontend/package.json`,
   `package-lock.json`, `vite.config.ts`), plus its committed coverage baseline now
-  describes a frontend that has since grown by 23 files.
+  describes a frontend that has since grown by 23 files. Age alone understates it:
+  this one was not merely forgotten, it had become unsafe to merge.
 
-A rule that only watched open PRs would have caught A and missed B entirely.
+> **Correction (2026-08-04).** An earlier draft characterized Mode B as "branched,
+> never proposed" and justified Decision 2 with it. That was wrong — PR #44 existed
+> and had been open since 2026-07-23T01:17:05Z. Both real cases carried an open PR.
+> Decision 2 stands, but on defensive rather than observed grounds; see there.
 
 ## Scoping insight
 
@@ -107,12 +112,23 @@ A cross-repo token, when used, is supplied by the operator's own install via
 
 ## Decision 2: the trace is the branch, not the PR
 
-Mode B has no PR. Watching PRs would have missed Council Principis entirely — the
-worse of the two cases, since it is the one that rots.
+**Both** real cases carried an open PR, so watching PRs alone would in fact have caught
+both. This decision is therefore *defensive*, not evidence-driven, and it is worth
+being honest about that rather than dressing it up.
 
-So the unit of observation is a **branch matching `ns/adopt-*`** on a named repo. A PR,
-when one exists, is *enrichment* on that branch — it supplies a better age anchor and a
-number to link. Absence of a PR is itself a reportable condition, not a reason to skip.
+The unit of observation is a **branch matching `ns/adopt-*`** on a named repo, because
+the branch is the **superset**: adoption work always starts as a branch and only
+sometimes becomes a PR. A rule keyed on PRs cannot see work that was pushed and then
+abandoned before anyone opened one — a failure mode that is strictly more invisible
+than the two observed, since it leaves nothing in any PR list to scroll past.
+
+A PR, when one exists, is *enrichment* on the branch: it supplies a better age anchor
+(`createdAt`) and a number to link. Absence of a PR is a reportable condition in its own
+right, not a reason to skip.
+
+The cost of this choice is that the gather must enumerate branches per repo rather than
+issue one `gh pr list`, which is more API calls. Accepted: the sweep is scheduled, not
+interactive.
 
 ## Decision 3: one rule, two firing conditions
 
