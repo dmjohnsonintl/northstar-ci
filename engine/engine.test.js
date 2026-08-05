@@ -50,3 +50,82 @@ test('stub reproduce engine commits a failing test onto the branch', () => {
   }
   assert.equal(failed, true);
 });
+
+// --- claude-code engine: the two silent-failure modes found live on 2026-08-05 ---
+// council-principis run 30976878181: the CLI returned in ~2s with 0 tokens and a
+// null model, yet the run reported "committed a fix" and the job went green. A
+// fake `claude` on PATH lets us drive both branches without spending anything.
+
+const CLAUDE_FIX = path.resolve('engine/claude-code/fix.sh');
+
+function repoWithFakeClaude(script) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ns-cc-'));
+  execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: dir });
+  execFileSync('git', ['config', 'user.email', 't@t'], { cwd: dir });
+  execFileSync('git', ['config', 'user.name', 't'], { cwd: dir });
+  fs.writeFileSync(path.join(dir, 'src.js'), 'module.exports = 0;\n');
+  execFileSync('git', ['add', '.'], { cwd: dir });
+  execFileSync('git', ['commit', '-qm', 'init'], { cwd: dir });
+
+  const bin = path.join(dir, 'fakebin');
+  fs.mkdirSync(bin);
+  fs.writeFileSync(path.join(bin, 'claude'), script, { mode: 0o755 });
+  // `npm` is called for the idempotent global install; stub it so the test is offline.
+  fs.writeFileSync(path.join(bin, 'npm'), '#!/usr/bin/env bash\nexit 0\n', { mode: 0o755 });
+  return { dir, bin };
+}
+
+function runEngine({ dir, bin }) {
+  return execFileSync('bash', [CLAUDE_FIX], {
+    cwd: dir,
+    encoding: 'utf8',
+    stdio: 'pipe',
+    env: {
+      ...process.env,
+      PATH: `${bin}:${process.env.PATH}`,
+      ANTHROPIC_API_KEY: 'test-key-not-used',
+      NS_FIX_WORKDIR: dir,
+      NS_FIX_LOG: '/dev/null',
+      NS_FIX_RECORD: '',
+    },
+  });
+}
+
+test('claude-code engine: a failed CLI invocation fails loudly, never silently', () => {
+  // The real failure: exits non-zero, writes to stderr, produces no result.
+  const { dir, bin } = repoWithFakeClaude('#!/usr/bin/env bash\necho "auth error: invalid api key" >&2\nexit 1\n');
+  let err = null;
+  try { runEngine({ dir, bin }); } catch (e) { err = e; }
+  assert.ok(err, 'engine must exit non-zero when the CLI fails');
+  const out = String(err.stdout || '') + String(err.stderr || '');
+  assert.match(out, /engine failed \(exit 1\)/);
+  assert.match(out, /auth error: invalid api key/, 'captured stderr must be surfaced, not discarded');
+});
+
+test('claude-code engine: an untracked artifact is NOT a fix', () => {
+  // The CLI "succeeds" but touches no source — it only leaves a test log behind,
+  // exactly what run-suite writes. This previously committed and reported a fix.
+  const { dir, bin } = repoWithFakeClaude(
+    '#!/usr/bin/env bash\nmkdir -p artifacts\necho "log line" > artifacts/test.log\necho \'{"is_error":false}\'\n',
+  );
+  let err = null;
+  try { runEngine({ dir, bin }); } catch (e) { err = e; }
+  assert.ok(err, 'an artifact-only change must not count as a fix');
+  const out = String(err.stdout || '') + String(err.stderr || '');
+  assert.match(out, /modified no tracked source file/);
+  // …and nothing was committed.
+  const log = execFileSync('git', ['log', '--oneline'], { cwd: dir, encoding: 'utf8' });
+  assert.doesNotMatch(log, /fix\(northstar\)/);
+});
+
+test('claude-code engine: a real source edit IS committed', () => {
+  const { dir, bin } = repoWithFakeClaude(
+    '#!/usr/bin/env bash\necho "module.exports = 42;" > src.js\nmkdir -p artifacts\necho noise > artifacts/test.log\necho \'{"is_error":false}\'\n',
+  );
+  const out = runEngine({ dir, bin });
+  assert.match(out, /committed a fix/);
+  assert.match(out, /src\.js/, 'the changed file should be reported');
+  const show = execFileSync('git', ['show', '--stat', '--format=', 'HEAD'], { cwd: dir, encoding: 'utf8' });
+  assert.match(show, /src\.js/);
+  assert.doesNotMatch(show, /artifacts/, 'the artifact must not be swept into the commit');
+});

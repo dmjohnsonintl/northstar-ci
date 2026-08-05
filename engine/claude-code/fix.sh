@@ -38,7 +38,26 @@ echo "[northstar] fixing at layer: $LAYER"
 
 # Headless, auto-approve edits, JSON output so we can record token/cost. --bare
 # skips local config. Edits still apply (output format is orthogonal to tool use).
-OUT="$(claude -p --bare --output-format json --permission-mode acceptEdits "$PROMPT" 2>/dev/null || true)"
+#
+# stderr is CAPTURED, not discarded. It used to go to /dev/null with `|| true`,
+# which made a total engine failure indistinguishable from a successful no-op:
+# council-principis run 30976878181 spent 2 seconds, returned 0 tokens and a null
+# model, and the run still reported "committed a fix". An engine that cannot run
+# must say so.
+ERRLOG="$(mktemp)"
+set +e
+OUT="$(claude -p --bare --output-format json --permission-mode acceptEdits "$PROMPT" 2>"$ERRLOG")"
+CLAUDE_RC=$?
+set -e
+
+if [ "$CLAUDE_RC" -ne 0 ] || [ -z "${OUT//[[:space:]]/}" ]; then
+  echo "::error::claude-code engine failed (exit $CLAUDE_RC). It produced no usable result, so no fix was attempted."
+  echo "[northstar] --- engine stderr (first 40 lines) ---" >&2
+  head -40 "$ERRLOG" >&2 || true
+  rm -f "$ERRLOG"
+  exit 1
+fi
+rm -f "$ERRLOG"
 
 # Write the usage record blob for the fix-agent to merge context onto. Defensive:
 # empty/garbage output -> null-cost blob (never blocks the fix on cost accounting).
@@ -53,11 +72,25 @@ fi
 
 git config user.name "northstar[bot]"
 git config user.email "northstar@users.noreply.github.com"
-if [ -n "$(git status --porcelain)" ]; then
-  git add -A
+
+# A fix is a MODIFICATION TO TRACKED FILES — not "the working tree is dirty".
+# `git status --porcelain` + `git add -A` counted untracked build/test artifacts
+# as a fix: run-suite writes <workdir>/artifacts/test.log, and unless the consumer
+# happens to gitignore it, the engine committed a log file and announced a fix
+# while changing no code at all (council-principis run 30976878181).
+#
+# `git add -u` stages tracked modifications only, so artifacts can never be swept
+# in. Tradeoff: a fix that creates a NEW source file is not detected — but the
+# prompt asks for a minimal edit to existing source, and that case fails LOUDLY
+# below rather than silently committing junk.
+CHANGED="$(git diff --name-only)"
+if [ -n "$CHANGED" ]; then
+  echo "[northstar] engine modified:"; printf '  %s\n' $CHANGED
+  git add -u
   git commit -qm "fix(northstar): claude-code engine fix for failing tests"
   echo "[northstar] claude-code engine committed a fix"
 else
+  echo "::error::claude-code engine ran but modified no tracked source file — nothing to fix with."
   echo "[northstar] claude-code engine produced no changes" >&2
   exit 1
 fi
