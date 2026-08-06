@@ -6,7 +6,17 @@ name: Northstar GC
 # lib/substrate; this workflow just applies them via gh.
 on:
   schedule:
-    - cron: '*/30 * * * *'
+    # HOURLY, offset off the hour. Was */30, which was the single largest consumer
+    # of the account's shared runner pool -- 68 runs in 14 days, more than every
+    # other workflow combined -- and it starved a consumer's own gate on
+    # 2026-08-06 (jobs cancelled with steps=0, i.e. never scheduled at all).
+    #
+    # Hourly matches what it sweeps: the claim TTL is 3600s, so */30 was 2x
+    # oversampling. Reclaim additionally requires BOTH expiry AND a stale renewal
+    # (lib/substrate.js), so a sweep arriving a little late can never yank a claim
+    # out from under a live agent -- the safety margin does not come from frequency.
+    # :23 keeps it clear of the top-of-hour rush everything else fires into.
+    - cron: '23 * * * *'
   workflow_dispatch:
   workflow_call:
     inputs:
