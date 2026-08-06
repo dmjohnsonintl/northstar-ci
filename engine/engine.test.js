@@ -67,8 +67,9 @@ function repoWithFakeClaude(script) {
   execFileSync('git', ['add', '.'], { cwd: dir });
   execFileSync('git', ['commit', '-qm', 'init'], { cwd: dir });
 
-  const bin = path.join(dir, 'fakebin');
-  fs.mkdirSync(bin);
+  // OUTSIDE the repo under test — a harness file inside it would show up as an
+  // untracked "new source file" and pollute the very signal these tests assert on.
+  const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'ns-bin-'));
   fs.writeFileSync(path.join(bin, 'claude'), script, { mode: 0o755 });
   // `npm` is called for the idempotent global install; stub it so the test is offline.
   fs.writeFileSync(path.join(bin, 'npm'), '#!/usr/bin/env bash\nexit 0\n', { mode: 0o755 });
@@ -112,7 +113,7 @@ test('claude-code engine: an untracked artifact is NOT a fix', () => {
   try { runEngine({ dir, bin }); } catch (e) { err = e; }
   assert.ok(err, 'an artifact-only change must not count as a fix');
   const out = String(err.stdout || '') + String(err.stderr || '');
-  assert.match(out, /modified no tracked source file/);
+  assert.match(out, /produced no source change/);
   // …and nothing was committed.
   const log = execFileSync('git', ['log', '--oneline'], { cwd: dir, encoding: 'utf8' });
   assert.doesNotMatch(log, /fix\(northstar\)/);
@@ -128,4 +129,35 @@ test('claude-code engine: a real source edit IS committed', () => {
   const show = execFileSync('git', ['show', '--stat', '--format=', 'HEAD'], { cwd: dir, encoding: 'utf8' });
   assert.match(show, /src\.js/);
   assert.doesNotMatch(show, /artifacts/, 'the artifact must not be swept into the commit');
+});
+
+test('claude-code engine: a fix that CREATES a source file is committed', () => {
+  // Previously missed: `git add -u` stages tracked modifications only, so a fix
+  // that adds a new module registered as "no changes" and failed the run.
+  const { dir, bin } = repoWithFakeClaude(
+    '#!/usr/bin/env bash\nmkdir -p src\necho "module.exports = 1;" > src/helper.js\n' +
+    'mkdir -p artifacts coverage\necho noise > artifacts/test.log\necho noise > coverage/lcov.info\n' +
+    'echo \'{"is_error":false}\'\n',
+  );
+  const out = runEngine({ dir, bin });
+  assert.match(out, /committed a fix/);
+  assert.match(out, /src\/helper\.js \(new\)/);
+  const show = execFileSync('git', ['show', '--stat', '--format=', 'HEAD'], { cwd: dir, encoding: 'utf8' });
+  assert.match(show, /src\/helper\.js/);
+  assert.doesNotMatch(show, /artifacts/, 'artifacts must still be excluded');
+  assert.doesNotMatch(show, /coverage/, 'coverage output must still be excluded');
+});
+
+test('claude-code engine: new artifacts ALONE are still not a fix', () => {
+  // The guard that regressed once already — generated output next to no source
+  // change must not read as a fix just because new-file support now exists.
+  const { dir, bin } = repoWithFakeClaude(
+    '#!/usr/bin/env bash\nmkdir -p artifacts coverage node_modules/x\n' +
+    'echo a > artifacts/test.log\necho b > coverage/lcov.info\necho c > node_modules/x/y.js\n' +
+    'echo \'{"is_error":false}\'\n',
+  );
+  let err = null;
+  try { runEngine({ dir, bin }); } catch (e) { err = e; }
+  assert.ok(err, 'artifact-only output must not count as a fix');
+  assert.match(String(err.stdout || '') + String(err.stderr || ''), /produced no source change/);
 });

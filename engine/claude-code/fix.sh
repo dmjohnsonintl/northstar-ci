@@ -88,14 +88,30 @@ git config user.email "northstar@users.noreply.github.com"
 # in. Tradeoff: a fix that creates a NEW source file is not detected — but the
 # prompt asks for a minimal edit to existing source, and that case fails LOUDLY
 # below rather than silently committing junk.
+# Tracked modifications are unambiguous — take them all.
 CHANGED="$(git diff --name-only)"
-if [ -n "$CHANGED" ]; then
-  echo "[northstar] engine modified:"; printf '  %s\n' $CHANGED
+
+# New files are trickier. `git add -A` used to sweep in build/test artifacts and
+# report them as a fix, so untracked paths are admitted only when they do NOT look
+# like generated output. The denylist is deliberately conservative: a genuinely new
+# source file in an unusual location is admitted, and the failure mode for anything
+# it wrongly excludes is a LOUD "no changes" below, never a junk commit.
+NEW="$(git ls-files --others --exclude-standard \
+  | grep -Ev '(^|/)(artifacts|coverage|node_modules|dist|build|__pycache__|\.pytest_cache|\.northstar|\.venv|venv)(/|$)' \
+  | grep -Ev '\.(log|lcov)$' || true)"
+
+if [ -n "$CHANGED" ] || [ -n "$NEW" ]; then
+  echo "[northstar] engine modified:"
+  [ -n "$CHANGED" ] && printf '  %s\n' $CHANGED
+  [ -n "$NEW" ] && printf '  %s (new)\n' $NEW
   git add -u
+  # Add new files by explicit path, never `-A` — an artifact must not ride along
+  # just because it happens to sit next to a real source file.
+  if [ -n "$NEW" ]; then printf '%s\n' $NEW | while IFS= read -r f; do git add -- "$f"; done; fi
   git commit -qm "fix(northstar): claude-code engine fix for failing tests"
   echo "[northstar] claude-code engine committed a fix"
 else
-  echo "::error::claude-code engine ran but modified no tracked source file — nothing to fix with."
+  echo "::error::claude-code engine ran but produced no source change — nothing to fix with."
   echo "[northstar] claude-code engine produced no changes" >&2
   exit 1
 fi
