@@ -1,6 +1,6 @@
 # Northstar — state of play
 
-**As of 2026-08-05 (paused, evening).** Hand-written snapshot of where the project actually is:
+**As of 2026-08-06.** Hand-written snapshot of where the project actually is:
 release state, who has adopted it, what was recently fixed and why, and what is
 open. Distinct from [`northstar-status.md`](northstar-status.md), which is
 generated every metrics run and reports live numbers.
@@ -24,7 +24,7 @@ Full design: [`superpowers/specs/2026-07-18-northstar-design.md`](superpowers/sp
 |---|---|
 | Canonical repo | `dmjohnsonintl/northstar-ci` (public) |
 | Release tag | `v0` — moving; re-tag on code changes, not on dashboard commits |
-| Tests | 104 total, 99 passing, 5 skipped (Python adapter, local toolchain only) |
+| Tests | 124 total, 119 passing, 5 skipped (Python adapter, local toolchain only) |
 | Predecessor | `dmjohnsonintl/Northstar` (private) — **archived**, superseded, its spec + v0 plan migrated here |
 
 `main` routinely runs a commit or two ahead of `v0` because the metrics workflow
@@ -38,34 +38,41 @@ commits `northstar-status.md` on a schedule. That is expected. See
 | `alto-works` | frontend (js-ts) + backend (python) | **Live** since 2026-07-23. Baselines ratcheting (64.12% / 74.91%) |
 | `council-principis` | frontend (vitest) + backend (pytest) | **Live** since 2026-08-05. Baselines established (20.12% / 74.64%) |
 | `a11yplus` | api (Django) | PR #1 **open, unmerged** since 2026-07-23 — owner is handling it |
-| `scan-core` | core (js-ts) | PR #1 **open** — c8 wired, 81.3% verified locally |
-| `a11yplus-worker` | worker (js-ts) | PR #1 **open, blocked** — see below |
+| `scan-core` | core (js-ts) | PR #1 **open, green** (gate + system) — unit 67.1% |
+| `a11yplus-worker` | worker (js-ts) | PR #1 **open, green** (gate + system) — unit 79.7% |
 
-### In flight (2026-08-05 evening)
+### In flight — four PRs, all green, all mergeable
 
-| PR | What | State |
+| PR | What |
+|---|---|
+| [alto-works #39](https://github.com/dmjohnsonintl/alto-works/pull/39) | Pin Node 20 (off EOL 18); CI proves CRA 5 survives it |
+| [council-principis #53](https://github.com/dmjohnsonintl/council-principis/pull/53) | Pin Node 22 (matches CI) |
+| [scan-core #1](https://github.com/dmjohnsonintl/scan-core/pull/1) | Adopt Northstar — gate **and** system layer green |
+| [a11yplus-worker #1](https://github.com/dmjohnsonintl/a11yplus-worker/pull/1) | Adopt Northstar — gate **and** system layer green |
+
+Merging these takes adoption from two live consumers to four.
+
+### Every new adoption had a latent test-environment bug
+
+Three for three, and none of them caused by Northstar — all invisible without it,
+and all surfaced on the **first run outside a developer machine**:
+
+| Repo | Bug | Fix |
 |---|---|---|
-| [alto-works #39](https://github.com/dmjohnsonintl/alto-works/pull/39) | Pin Node 20 (off EOL 18) | **Green** — CRA 5 survives the bump. Mergeable |
-| [council-principis #53](https://github.com/dmjohnsonintl/council-principis/pull/53) | Pin Node 22 (matches CI) | **Green.** Mergeable |
-| [scan-core #1](https://github.com/dmjohnsonintl/scan-core/pull/1) | Adopt Northstar | CI was still running at pause |
-| [a11yplus-worker #1](https://github.com/dmjohnsonintl/a11yplus-worker/pull/1) | Adopt Northstar | **Blocked** on `npm ci` |
+| `council-principis` | Global `navigator` needs Node ≥21; CI requested 20 | Pin Node |
+| `a11yplus-worker` | One suite drives a real browser via Playwright | Move to the system layer |
+| `scan-core` | **Six** suites drive real browsers | Move to the system layer |
 
-**`a11yplus-worker` — where it got to, and what's left.** The first run failed for a
-real reason: `test/e2e-scan.test.mjs` drives a **live browser** through
-scan-core → Playwright. It passes on any developer machine with browsers installed
-and fails on a bare runner — the same class of bug as the Council Principis Node
-issue, and again surfaced the first time that suite ran outside a laptop. Fixed
-properly rather than papered over: the test moved to `test/e2e/`, `test:ci` scoped
-to `test/*.test.mjs`, and Northstar's **system layer** (which installs browsers)
-given `system-test-cmd: npm run test:e2e`. The unit gate then went **green at
-79.73%**.
+The lesson for the next adoption: **scope the unit gate to browser-free tests and
+pin Node before the first run.** Grepping for `playwright` is not sufficient —
+three of scan-core's six launched browsers through helpers and were found by CI,
+not by inspection.
 
-It is now stuck one layer down: `npm ci` fails with *"can only install with an
-existing package-lock.json"* even though the lockfile is committed and valid
-(v3). **Reproduced locally**, so it is a genuine condition in that repo rather
-than a CI quirk — most likely its `file:vendor/scan-core-1.2.0.tgz` dependency
-combined with an `overrides` pin on `playwright`. Probable fix is regenerating the
-lockfile, which is a larger diff than it was sensible to make unsupervised.
+One self-inflicted bug worth recording, because npm's error was actively
+misleading: `npm install --save-dev playwright@1.61.1` writes `^1.61.1`, the caret
+conflicts with an exact `overrides` pin, and npm then reports the resulting
+lockfile as **missing** (`"can only install with an existing package-lock.json"`)
+rather than conflicting. Pin exactly when the repo has an override.
 
 Both live consumers run `engine: 'stub'` by default. **The real fix-agent has now
 been proven once against a real client bug** — see below.
@@ -124,6 +131,34 @@ telling you when a human is needed, that is the most expensive possible bug clas
    detection is `git diff --name-only`, and staging is `git add -u` plus new files
    admitted by explicit path against a denylist (`0fbad01`) — `git add -A` is never
    used, so artifacts cannot ride along.
+
+## Built 2026-08-06
+
+**`adoption-stalled` — the sixth alert rule** (`7b2f197`). Catches the failure that
+started this thread: an adoption sitting unmerged, or drifting until it is no longer
+safe to merge. Watches the `ns/adopt-*` **branch** rather than the PR, fires on age
+**or** drift, and is operator-side and opt-in — `adoption-repos` defaults to empty, so
+a client install is byte-for-byte unaffected.
+
+The two real incidents are its test fixtures, replayed at injected timestamps. That
+**corrected a claim made in this very document**: a 3-day threshold was said to catch
+the incident "on Jul 26". The branch was cut at 02:12:15Z, so it fires at 02:12Z on
+the 26th — right to the day, off by two hours. Asserting a claim is how you find out
+it was approximate.
+
+**The §7.3 diff-guard** (`949fd7b`). Until now the package's central promise — the
+agent fixes *source*, never weakens tests — was enforced by one sentence in a prompt,
+while every other rule was a hard gate. `lib/diff-guard.js` makes it a gate: it
+rejects test deletion, added skip/todo markers across six runners, and net assertion
+removal, and it runs **before** the suite is re-run, because a weakened suite goes
+green and checking afterwards rewards exactly the behaviour being prevented. A
+rejection fails the job and emits `ns:signal/guard-trip` — the trace §12.1's
+guard-trip-rate was specified to read but never had.
+
+Assertion counting is by **occurrence, not line**, and only real `git show` output
+revealed why: a one-line test with two assertions, one deleted, passes a per-line
+count because both the old and new line "contain an assertion". Unit fixtures alone
+would not have caught it.
 
 ## Live signals right now
 
@@ -185,23 +220,17 @@ misconfigure.
 
 ## Open, roughly by value per effort
 
-1. **Enable PR creation on `council-principis`.** Settings → Actions → General →
-   Workflow permissions → *"Allow GitHub Actions to create and approve pull
-   requests."* Without it the fix-agent pushes its branch but cannot open the PR —
-   #52 had to be opened by hand. This is step 5 of [`adoption-v0.md`](adoption-v0.md)
-   and the last consumer-side gap. `alto-works` needs checking too.
+~~1. **Enable PR creation on the consumers.**~~ **Done** — `can_approve_pull_request_reviews`
+   is now `true` on both `council-principis` and `alto-works`, so the fix-agent opens
+   its own PRs instead of pushing a branch nobody notices.
 2. **Decide whether `engine: 'claude-code'` goes on by default** anywhere, now
    that it is proven. It is per-caller config, so it can be enabled one zone at a
    time. Budget roughly $0.18 per real failure.
-3. **Implementation plan for the adoption-stalled rule.** Spec is written and
-   corrected: [`superpowers/specs/2026-08-02-adoption-alerting-design.md`](superpowers/specs/2026-08-02-adoption-alerting-design.md).
-4. **README.** Still says the fix-agent, bug-intake and monitoring "land in later
-   versions." All three shipped. It is the front door and it undersells by a full
-   version. It also omits the `permissions:` block that `adoption-v0.md` requires.
-5. **`scan-core` and `a11yplus-worker`.** **PRs open** — scan-core is wired and
-   verified; a11yplus-worker is blocked on `npm ci` (see In flight above). Finishing
-   these takes adoption from two repos to four.
-6. **Pin Node** in the client repos. **Both PRs open and green** — merge when ready.
+~~3. **Adoption-stalled rule.**~~ **Done** (`7b2f197`) — see Built above.
+~~4. **README.**~~ **Done** — rewritten to match what shipped, including the
+   `permissions:` block its copy-paste install was silently missing.
+5. **Merge the four open PRs** — two adoptions, two Node pins, all green. This is
+   the only remaining item that needs a human, and it is a click each.
 ~~7. **Engine cannot detect a fix that creates a new file.**~~ **Done** (`0fbad01`).
    New files are admitted by explicit path against a denylist, so a fix that adds a
    module is committed while `artifacts/` and `coverage/` written in the same run
