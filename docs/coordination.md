@@ -7,7 +7,7 @@ its HTTP service (spec §4).
 | Substrate concept | Northstar implementation | Mortal? |
 |---|---|---|
 | **Zone** | path glob (`frontend/**`) from config + CODEOWNERS | — |
-| **Advisory signal** | label `ns:signal/<type>` (coverage-gap, hot-area, flaky, reclaimed, stale-bug…) | TTL |
+| **Advisory signal** | label `ns:signal/<type>` (coverage-gap, hot-area, flaky, guard-trip, reclaimed, stale-bug…) | TTL |
 | **Enforcement claim** | atomically-created branch `ns/claim/<zone>` + `ns:claim/zone/<zone>` label; metadata in `.northstar/claims/<zone>.json` | TTL |
 | **Actor identity** | `ns:actor/<role>@<run-id>` on every claim/signal | — |
 | **Mortality / GC** | scheduled `northstar-gc.yml` sweep | — |

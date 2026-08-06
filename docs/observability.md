@@ -114,6 +114,26 @@ traces it already gathers (no extra API calls beyond enumerating claim refs):
 | `human-acceptance` | humans merge less than this share of **decided** fix PRs | `0.5`, min sample `3` | trend |
 | `canary` | the latest canary run concluded red | — | page |
 
+### `guard-trip` — the §7.3 diff-guard
+
+Northstar's central promise is that the fix-agent makes tests pass by fixing
+**source**, never by weakening tests. That was enforced only by a sentence in the
+engine prompt until `lib/diff-guard.js` turned it into a gate.
+
+It runs on the agent's own commit, **before** the suite is re-run — a weakened suite
+goes green, so checking afterwards would reward exactly the behaviour being
+prevented. It rejects three unambiguous cheats: deleting a test file, adding a
+skip/todo marker (jest, vitest, mocha, node:test, pytest, unittest), and a net
+removal of assertions. Removing a skip marker is *allowed* — that re-enables a test.
+
+Assertion counting is by **occurrence, not line**. Counting lines missed the most
+obvious cheat available: a one-line test with two assertions, one deleted — both the
+old and new line "contain an assertion", so it netted zero. Found by running the
+guard against real `git diff` output rather than only unit fixtures.
+
+A rejection fails the fix job and emits `ns:signal/guard-trip` (TTL 7d), which is the
+trace §12.1's guard-trip-rate health signal was always specified to read.
+
 ### `human-acceptance` — read the counting rules before tuning it
 
 Spec §12.1 names this signal, and it is the only one that measures the *human*

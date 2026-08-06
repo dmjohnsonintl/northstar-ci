@@ -2,7 +2,7 @@ name: 'Northstar signal'
 description: 'Deposit an advisory ns:signal/<type> — a mortal, actor-attributed trace. Emitted to the step-summary readout always, and as a PR label best-effort (degrades gracefully when the token lacks labeling rights, so it never requires a new consumer permission).'
 inputs:
   type:
-    description: 'coverage-gap | hot-area | flaky | stale-bug | agent-unavailable'
+    description: 'coverage-gap | hot-area | flaky | guard-trip | stale-bug | agent-unavailable'
     required: true
   zone:
     default: ''

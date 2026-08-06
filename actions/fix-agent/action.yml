@@ -70,6 +70,31 @@ runs:
         NS_FIX_RECORD: ${{ runner.temp }}/ns-engine-record.json
       run: bash "${{ github.action_path }}/../../engine/claude-code/fix.sh"
 
+    # Spec §7.3. The prompt ASKS the engine not to weaken tests; this is the gate that
+    # enforces it. Runs BEFORE the suite is re-run, because a weakened suite goes green
+    # and would otherwise be rewarded with a PR that looks exactly like a real fix.
+    - name: diff-guard (reject a fix that weakens tests)
+      id: guard
+      shell: bash
+      run: |
+        set -uo pipefail
+        if ! git show --unified=0 --no-color HEAD \
+             | node "${{ github.action_path }}/../../lib/diff-guard-cli.js"; then
+          echo "guard_tripped=true" >> "$GITHUB_OUTPUT"
+          exit 1
+        fi
+        echo "guard_tripped=false" >> "$GITHUB_OUTPUT"
+
+    - name: signal — guard-trip
+      if: ${{ failure() && steps.guard.outputs.guard_tripped == 'true' }}
+      uses: dmjohnsonintl/northstar-ci/actions/signal@v0
+      with:
+        type: guard-trip
+        zone: ${{ inputs.zone }}
+        pr-number: ${{ github.event.pull_request.number }}
+        ttl-seconds: '604800'
+        role: diff-guard
+
     - name: Re-run tests, then open a PR or escalate
       id: rerun
       shell: bash
