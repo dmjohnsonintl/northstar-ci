@@ -1,6 +1,6 @@
 # Northstar — state of play
 
-**As of 2026-08-05.** Hand-written snapshot of where the project actually is:
+**As of 2026-08-05 (paused, evening).** Hand-written snapshot of where the project actually is:
 release state, who has adopted it, what was recently fixed and why, and what is
 open. Distinct from [`northstar-status.md`](northstar-status.md), which is
 generated every metrics run and reports live numbers.
@@ -24,7 +24,7 @@ Full design: [`superpowers/specs/2026-07-18-northstar-design.md`](superpowers/sp
 |---|---|
 | Canonical repo | `dmjohnsonintl/northstar-ci` (public) |
 | Release tag | `v0` — moving; re-tag on code changes, not on dashboard commits |
-| Tests | 102 total, 97 passing, 5 skipped (Python adapter, local toolchain only) |
+| Tests | 104 total, 99 passing, 5 skipped (Python adapter, local toolchain only) |
 | Predecessor | `dmjohnsonintl/Northstar` (private) — **archived**, superseded, its spec + v0 plan migrated here |
 
 `main` routinely runs a commit or two ahead of `v0` because the metrics workflow
@@ -38,6 +38,34 @@ commits `northstar-status.md` on a schedule. That is expected. See
 | `alto-works` | frontend (js-ts) + backend (python) | **Live** since 2026-07-23. Baselines ratcheting (64.12% / 74.91%) |
 | `council-principis` | frontend (vitest) + backend (pytest) | **Live** since 2026-08-05. Baselines established (20.12% / 74.64%) |
 | `a11yplus` | api (Django) | PR #1 **open, unmerged** since 2026-07-23 — owner is handling it |
+| `scan-core` | core (js-ts) | PR #1 **open** — c8 wired, 81.3% verified locally |
+| `a11yplus-worker` | worker (js-ts) | PR #1 **open, blocked** — see below |
+
+### In flight (2026-08-05 evening)
+
+| PR | What | State |
+|---|---|---|
+| [alto-works #39](https://github.com/dmjohnsonintl/alto-works/pull/39) | Pin Node 20 (off EOL 18) | **Green** — CRA 5 survives the bump. Mergeable |
+| [council-principis #53](https://github.com/dmjohnsonintl/council-principis/pull/53) | Pin Node 22 (matches CI) | **Green.** Mergeable |
+| [scan-core #1](https://github.com/dmjohnsonintl/scan-core/pull/1) | Adopt Northstar | CI was still running at pause |
+| [a11yplus-worker #1](https://github.com/dmjohnsonintl/a11yplus-worker/pull/1) | Adopt Northstar | **Blocked** on `npm ci` |
+
+**`a11yplus-worker` — where it got to, and what's left.** The first run failed for a
+real reason: `test/e2e-scan.test.mjs` drives a **live browser** through
+scan-core → Playwright. It passes on any developer machine with browsers installed
+and fails on a bare runner — the same class of bug as the Council Principis Node
+issue, and again surfaced the first time that suite ran outside a laptop. Fixed
+properly rather than papered over: the test moved to `test/e2e/`, `test:ci` scoped
+to `test/*.test.mjs`, and Northstar's **system layer** (which installs browsers)
+given `system-test-cmd: npm run test:e2e`. The unit gate then went **green at
+79.73%**.
+
+It is now stuck one layer down: `npm ci` fails with *"can only install with an
+existing package-lock.json"* even though the lockfile is committed and valid
+(v3). **Reproduced locally**, so it is a genuine condition in that repo rather
+than a CI quirk — most likely its `file:vendor/scan-core-1.2.0.tgz` dependency
+combined with an `overrides` pin on `playwright`. Probable fix is regenerating the
+lockfile, which is a larger diff than it was sensible to make unsupervised.
 
 Both live consumers run `engine: 'stub'` by default. **The real fix-agent has now
 been proven once against a real client bug** — see below.
@@ -48,11 +76,12 @@ been proven once against a real client bug** — see below.
   `paths:` filtering (`frontend/**` vs `backend/**`), so collapsing it would run
   backend CI on frontend-only changes. Council Principis' split existed *only* to
   dodge the concurrency bug and was correctly collapsed to one caller.
-- **Neither repo pins Node.** Council Principis' suite failed the first time it
-  ever ran in CI (`ReferenceError: navigator is not defined` — Node exposes that
-  global only from v21) purely because CI requested an older Node than any
-  developer runs. Worked around with `node-version: '22'`; the durable fix is an
-  `.nvmrc`/`engines` pin in each repo.
+- **Unpinned Node is the recurring bug class.** Council Principis' suite failed the
+  first time it ever ran in CI (`ReferenceError: navigator is not defined` — Node
+  exposes that global only from v21) purely because CI requested an older Node than
+  any developer runs. `.nvmrc` + `engines` PRs are now open and green on both live
+  consumers; merging them closes it. Every new adoption should pin Node **before**
+  the first run, not after.
 
 ## Recently fixed — a chain of silent failures
 
@@ -92,7 +121,9 @@ telling you when a human is needed, that is the most expensive possible bug clas
    anything?" was `git status --porcelain` + `git add -A` — so an untracked
    `artifacts/test.log` counted as a fix. A total engine failure was reported as
    *"claude-code engine committed a fix"*. Now: both streams surfaced on failure,
-   detection is `git diff --name-only`, staging is `git add -u`.
+   detection is `git diff --name-only`, and staging is `git add -u` plus new files
+   admitted by explicit path against a denylist (`0fbad01`) — `git add -A` is never
+   used, so artifacts cannot ride along.
 
 ## Live signals right now
 
@@ -167,14 +198,14 @@ misconfigure.
 4. **README.** Still says the fix-agent, bug-intake and monitoring "land in later
    versions." All three shipped. It is the front door and it undersells by a full
    version. It also omits the `permissions:` block that `adoption-v0.md` requires.
-5. **`scan-core` and `a11yplus-worker`.** Both have real 15-file `node --test`
-   suites; each needs `c8` plus `test:ci`/`test:coverage` scripts. Would take
-   adoption from two repos to four.
-6. **Pin Node** in the client repos (see above).
-7. **Engine cannot detect a fix that creates a new file.** Deliberate tradeoff
-   from #4 — `git add -u` stages tracked modifications only, so artifacts can
-   never be swept in. That case now fails loudly rather than committing junk,
-   which is the safe direction, but it is a real limitation.
+5. **`scan-core` and `a11yplus-worker`.** **PRs open** — scan-core is wired and
+   verified; a11yplus-worker is blocked on `npm ci` (see In flight above). Finishing
+   these takes adoption from two repos to four.
+6. **Pin Node** in the client repos. **Both PRs open and green** — merge when ready.
+~~7. **Engine cannot detect a fix that creates a new file.**~~ **Done** (`0fbad01`).
+   New files are admitted by explicit path against a denylist, so a fix that adds a
+   module is committed while `artifacts/` and `coverage/` written in the same run
+   are not. `git add -A` is still never used.
 
 ## Known-good verification habits in this repo
 
