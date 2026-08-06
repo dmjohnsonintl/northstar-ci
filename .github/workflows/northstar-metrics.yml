@@ -50,6 +50,26 @@ on:
         description: 'Minimum DECIDED fix PRs before the acceptance rule is evaluated'
         type: number
         default: 3
+      adoption-repos:
+        description: >-
+          OPERATOR-SIDE, OPT-IN. Space-separated owner/name list to watch for stalled
+          Northstar adoptions. Empty (the default) means no gather runs and the
+          adoption-stalled rule is omitted entirely — a client install is unaffected.
+          Cross-repo reads need a token beyond GITHUB_TOKEN; supply NS_ADOPTION_TOKEN.
+        type: string
+        default: ''
+      adoption-age-seconds:
+        description: 'Fire when an adoption has sat untouched longer than this'
+        type: number
+        default: 259200
+      adoption-behind-max:
+        description: 'Fire when an adoption is more than this many commits behind'
+        type: number
+        default: 25
+      adoption-branch-prefix:
+        description: 'Branch prefix identifying an adoption (the trace both real adoptions used)'
+        type: string
+        default: 'ns/adopt-'
       canary-workflow:
         type: string
         default: 'Northstar canary'
@@ -77,6 +97,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ inputs.repo || github.repository }}
           BASELINE_PATH: ${{ inputs.baseline-path }}
+          ADOPTION_REPOS: ${{ inputs.adoption-repos }}
+          ADOPTION_PREFIX: ${{ inputs.adoption-branch-prefix }}
+          # Cross-repo reads need more than GITHUB_TOKEN. Absent → the sweep finds
+          # nothing readable, the array is empty, and the rule is omitted.
+          GH_TOKEN_ADOPTION: ${{ secrets.NS_ADOPTION_TOKEN }}
         run: |
           set -euo pipefail
           # Actions run history (pipeline health, green rate, per-workflow).
@@ -141,6 +166,44 @@ jobs:
             '{activeClaims:$claims, signals:{flaky:$flaky, coverageGap:$covgap, reclaimed:$reclaim}, promotions:$promos}' \
             > extra.json
 
+          # Adoption sweep (operator-side, opt-in). Skipped entirely when the repo
+          # list is empty, so a client install never makes these calls. Every gh call
+          # is individually guarded: an unreadable repo drops out of the array rather
+          # than aborting the sweep, because absence of evidence is not evidence.
+          #
+          # A SENTINEL ({repo, branch:null}) is emitted for a configured repo with no
+          # adoption branch. Without it a merged adoption empties the array, which the
+          # rule treats as "not configured" (omitted) — and an open alert issue could
+          # then never close.
+          echo '[]' > adoptions.json
+          if [ -n "${ADOPTION_REPOS:-}" ]; then
+            # Cross-repo reads need the wider token; GITHUB_TOKEN is scoped to THIS
+            # repo and would silently return nothing for every other one. Scoped to
+            # this block only, via a subshell-local export.
+            export GH_TOKEN="${GH_TOKEN_ADOPTION:-$GH_TOKEN}"
+            : > .nsadopt.jsonl
+            for ar in $ADOPTION_REPOS; do
+              def="$(gh api "repos/$ar" --jq .default_branch 2>/dev/null || true)"
+              [ -z "$def" ] && continue          # unreadable repo → skip, never fatal
+              found=0
+              for br in $(gh api "repos/$ar/branches" --paginate --jq '.[].name' 2>/dev/null \
+                          | grep "^${ADOPTION_PREFIX}" || true); do
+                cmp="$(gh api "repos/$ar/compare/$def...$br" --jq '{a:.ahead_by,b:.behind_by}' 2>/dev/null || echo '{}')"
+                pr="$(gh pr list --repo "$ar" --head "$br" --state open --json number,createdAt --jq '.[0]' 2>/dev/null || true)"
+                tip="$(gh api "repos/$ar/branches/$br" --jq .commit.commit.author.date 2>/dev/null || true)"
+                jq -nc --arg repo "$ar" --arg branch "$br" --arg tip "$tip" \
+                  --argjson cmp "${cmp:-{\}}" --argjson pr "${pr:-null}" \
+                  '{repo:$repo, branch:$branch, pr:($pr.number // null),
+                    since:($pr.createdAt // $tip),
+                    aheadBy:($cmp.a // null), behindBy:($cmp.b // null)}' >> .nsadopt.jsonl || true
+                found=1
+              done
+              [ "$found" = "0" ] && jq -nc --arg repo "$ar" '{repo:$repo, branch:null}' >> .nsadopt.jsonl || true
+            done
+            jq -s '.' .nsadopt.jsonl > adoptions.json 2>/dev/null || echo '[]' > adoptions.json
+            echo "[northstar] adoption sweep: $(jq 'length' adoptions.json) record(s)"
+          fi
+
           # Engine cost records from the dedicated northstar-metrics branch
           # (git archive → no worktree/index pollution). Absent branch → empty.
           git fetch origin northstar-metrics 2>/dev/null || true
@@ -196,6 +259,8 @@ jobs:
           CLAIM_AGE: ${{ inputs.claim-age-seconds }}
           ACCEPT_MIN: ${{ inputs.acceptance-min }}
           ACCEPT_MIN_SAMPLE: ${{ inputs.acceptance-min-sample }}
+          ADOPT_AGE: ${{ inputs.adoption-age-seconds }}
+          ADOPT_BEHIND: ${{ inputs.adoption-behind-max }}
           CANARY_WORKFLOW: ${{ inputs.canary-workflow }}
           ALERT_LABEL: ${{ inputs.alert-label }}
         run: |
@@ -207,6 +272,8 @@ jobs:
             --escalation-rate "$ESC_RATE" --coverage-delta-min "$COV_MIN" \
             --claim-age-seconds "$CLAIM_AGE" --canary-workflow "$CANARY_WORKFLOW" \
             --acceptance-min "$ACCEPT_MIN" --acceptance-min-sample "$ACCEPT_MIN_SAMPLE" \
+            --adoptions adoptions.json \
+            --adoption-age-seconds "$ADOPT_AGE" --adoption-behind-max "$ADOPT_BEHIND" \
             > alerts.json || echo '[]' > alerts.json   # never black out the run on an alert-eval hiccup
           echo "## §12.1 Alerts" >> "$GITHUB_STEP_SUMMARY"
           jq -r '.[] | "- **\(.rule)** [\(.severity)]: \(.state)"' alerts.json >> "$GITHUB_STEP_SUMMARY" || true
