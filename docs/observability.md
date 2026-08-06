@@ -103,7 +103,7 @@ stream as ordinary fix runs.
 
 ## Alerting (§12.1)
 
-The metrics workflow evaluates five alert rules on every run, using the same
+The metrics workflow evaluates six alert rules on every run, using the same
 traces it already gathers (no extra API calls beyond enumerating claim refs):
 
 | Rule | Fires when | Default threshold | Severity |
@@ -112,7 +112,22 @@ traces it already gathers (no extra API calls beyond enumerating claim refs):
 | `coverage-trend` | coverage delta from the previous point is negative | delta-min `0` | trend |
 | `claim-starvation` | any active coordination claim is older than the threshold | `21600`s (6h) | trend |
 | `human-acceptance` | humans merge less than this share of **decided** fix PRs | `0.5`, min sample `3` | trend |
+| `adoption-stalled` | a tracked adoption is too old or too far behind | `259200`s (3d) / `25` commits | trend |
 | `canary` | the latest canary run concluded red | — | page |
+
+### `adoption-stalled` — operator-side, opt-in, off by default
+
+The only rule that is **not** about the repo it runs in. It answers *"is my rollout
+stuck?"*, a question about a portfolio, so `adoption-repos` defaults to empty: no
+gather runs, the rule is omitted, and a client install is byte-for-byte unaffected.
+Cross-repo reads need an optional `NS_ADOPTION_TOKEN`; without it the sweep reads
+nothing and the rule is omitted rather than reporting a false clear.
+
+It watches the **`ns/adopt-*` branch**, not the PR — adoption work always starts as a
+branch and only sometimes becomes one. Two firing conditions, because the two real
+incidents that motivated it degrade differently: one sat 12 days at **zero** commits
+behind (age only), the other drifted 55 commits behind until it was unsafe to merge.
+
 
 ### `guard-trip` — the §7.3 diff-guard
 
