@@ -1,19 +1,19 @@
 # Northstar status — dmjohnsonintl/northstar-ci
 
-_Window: last 14 days · generated 2026-08-06T15:30:21Z_
+_Window: last 14 days · generated 2026-08-07T14:19:46Z_
 
 ## Pipeline health
 
 - **Runs:** 200 (197 completed)
-- **Green rate:** 100% ██████████ (197 passed / 0 failed)
+- **Green rate:** 99% ██████████ (195 passed / 2 failed)
 - **Median run time:** 17s
-- **CI time (window):** 71 min
+- **CI time (window):** 101 min
 
 | Workflow | Runs | Passed | Failed |
 |---|--:|--:|--:|
-| Northstar GC | 153 | 153 | 0 |
+| Northstar GC | 152 | 151 | 1 |
 | Northstar canary | 13 | 13 | 0 |
-| ci | 17 | 17 | 0 |
+| ci | 18 | 17 | 1 |
 | concurrency-proof | 2 | 1 | 0 |
 | metricsdemo | 14 | 13 | 0 |
 | permprobe (caller) | 1 | 0 | 0 |
@@ -25,7 +25,7 @@ _Window: last 14 days · generated 2026-08-06T15:30:21Z_
 
 ## Agent / model health
 
-- **Fix success rate:** 100% (24 fixed → PR, 0 escalated to `ns:needs-human`)
+- **Fix success rate:** 100% (25 fixed → PR, 0 escalated to `ns:needs-human`)
 - **Human acceptance:** 0%
 - **Bugs reproduced:** 1 (`ns:needs-info`: 0)
 - **Tests promoted to regression:** —
@@ -42,8 +42,8 @@ _Window: last 14 days · generated 2026-08-06T15:30:21Z_
 
 ## Cost
 
-- **Total (window):** $0.8814 across 14/14 fix runs with cost data
-- **Per fix run:** $0.0630
-- **Tokens:** in 204 · out 15827 · cache-read 282359
-- **By layer:** unit $0.8814 (14 runs)
+- **Total (window):** $0.8782 across 14/14 fix runs with cost data
+- **Per fix run:** $0.0627
+- **Tokens:** in 202 · out 15787 · cache-read 278905
+- **By layer:** unit $0.8782 (14 runs)
 
