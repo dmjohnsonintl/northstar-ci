@@ -1,0 +1,18 @@
+{
+  "engine": "claude-code",
+  "costUsd": 0.069253,
+  "tokens": {
+    "input": 16,
+    "output": 1297,
+    "cacheRead": 22672
+  },
+  "model": null,
+  "numTurns": 9,
+  "runId": "31246851057",
+  "workflow": "Northstar canary",
+  "job": "canary",
+  "layer": "unit",
+  "zone": "canary",
+  "outcome": "fixed",
+  "createdAt": "2026-08-08T07:45:30Z"
+}
